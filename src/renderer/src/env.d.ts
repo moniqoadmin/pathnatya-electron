@@ -39,7 +39,6 @@ export interface PathnatyaAPI {
   cancelHlsDownload: () => Promise<void>
   clearHlsOfflineVideo: () => Promise<void>
   onHlsDownloadProgress: (callback: (progress: HlsOfflineStatus) => void) => () => void
-  setSessionGuard: (enabled: boolean) => Promise<void>
   saveOfflineSession: (payload: {
     phoneNumber: string
     account: Account

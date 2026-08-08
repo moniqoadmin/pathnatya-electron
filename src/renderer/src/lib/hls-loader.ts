@@ -28,6 +28,10 @@ export async function cancelHlsDownload() {
   return window.pathnatya.cancelHlsDownload()
 }
 
+export async function clearHlsOfflineVideo() {
+  return window.pathnatya.clearHlsOfflineVideo()
+}
+
 export function onHlsDownloadProgress(
   callback: (progress: Awaited<ReturnType<typeof getHlsOfflineStatus>>) => void
 ) {

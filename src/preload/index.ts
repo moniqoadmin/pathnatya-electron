@@ -48,8 +48,6 @@ const API = {
       ipcRenderer.removeListener('hls-download-progress', handler)
     }
   },
-  setSessionGuard: (enabled: boolean) =>
-    ipcRenderer.invoke('set-session-guard', enabled) as Promise<void>,
   saveOfflineSession: (payload: {
     phoneNumber: string
     account: unknown

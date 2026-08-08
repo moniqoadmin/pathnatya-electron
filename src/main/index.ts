@@ -27,8 +27,6 @@ import { enforceDesktopLaptopOnly } from './platform-guard'
 
 const isDev = !app.isPackaged
 
-let sessionGuardEnabled = false
-
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'pathnatya',
@@ -168,20 +166,9 @@ async function getDeviceIdentifier(): Promise<DeviceIdentifier> {
   return { id: 'macAddress', type: 'mac' }
 }
 
-function setWindowContentProtection(mainWindow: BrowserWindow, enabled: boolean): void {
-  if (mainWindow.isDestroyed()) {
-    return
-  }
-
-  // Black out / exclude window from OS screen capture while video session is active.
-  mainWindow.setContentProtection(enabled)
-}
-
 function interruptSession(mainWindow: BrowserWindow): void {
-  sessionGuardEnabled = false
   clearPreparedHls()
   clearHlsKey()
-  setWindowContentProtection(mainWindow, false)
 
   if (!mainWindow.isDestroyed()) {
     mainWindow.webContents.send('session-interrupted')
@@ -288,15 +275,6 @@ app.whenReady().then(async () => {
   ipcMain.handle('get-system-ip', () => getSystemIpAddress())
 
   ipcMain.handle('is-packaged', () => app.isPackaged)
-
-  ipcMain.handle('set-session-guard', (event, enabled: boolean) => {
-    sessionGuardEnabled = Boolean(enabled)
-
-    const mainWindow = BrowserWindow.fromWebContents(event.sender)
-    if (mainWindow) {
-      setWindowContentProtection(mainWindow, sessionGuardEnabled)
-    }
-  })
 
   ipcMain.handle('set-video-key', (_event, token: string) => {
     setHlsKey(String(token ?? ''))
