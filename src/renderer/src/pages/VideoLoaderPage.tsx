@@ -64,6 +64,7 @@ export default function VideoLoaderPage({
   const hlsRef = useRef<Hls | null>(null)
   const volumeRef = useRef(readStoredVolume())
   const lastAudibleVolumeRef = useRef(volumeRef.current > 0 ? volumeRef.current : 1)
+  const fullscreenEnteredAtRef = useRef(0)
 
   const [reloadToken, setReloadToken] = useState(0)
   const [playbackReady, setPlaybackReady] = useState(false)
@@ -165,6 +166,7 @@ export default function VideoLoaderPage({
       return
     }
 
+    fullscreenEnteredAtRef.current = Date.now()
     void container.requestFullscreen().catch(() => {})
   })
 
@@ -205,8 +207,17 @@ export default function VideoLoaderPage({
 
   // Leaving the app (blur / hidden) exits fullscreen so playback requires re-entry.
   useEffect(() => {
+    // macOS animates entering fullscreen into a new Space, which briefly blurs
+    // the window and can fire visibilitychange. Ignore auto-exit signals during
+    // this grace window so we don't get kicked out the instant we enter.
+    const FULLSCREEN_GRACE_MS = 1500
+
     const leaveFullscreen = (): void => {
       if (!document.fullscreenElement) {
+        return
+      }
+
+      if (Date.now() - fullscreenEnteredAtRef.current < FULLSCREEN_GRACE_MS) {
         return
       }
 
