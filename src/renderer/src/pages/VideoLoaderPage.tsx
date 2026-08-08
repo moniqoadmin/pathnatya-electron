@@ -205,41 +205,46 @@ export default function VideoLoaderPage({
     }
   }, [])
 
-  // Leaving the app (blur / hidden) exits fullscreen so playback requires re-entry.
+  // Leaving the app (OS focus loss / hidden) exits fullscreen and pauses playback.
   useEffect(() => {
     // macOS animates entering fullscreen into a new Space, which briefly blurs
     // the window and can fire visibilitychange. Ignore auto-exit signals during
     // this grace window so we don't get kicked out the instant we enter.
     const FULLSCREEN_GRACE_MS = 1500
 
-    const leaveFullscreen = (): void => {
-      if (!document.fullscreenElement) {
-        return
-      }
-
+    const leaveFullscreenAndPause = (): void => {
       if (Date.now() - fullscreenEnteredAtRef.current < FULLSCREEN_GRACE_MS) {
         return
       }
 
-      void document.exitFullscreen().catch(() => {})
+      const video = videoRef.current
+      if (video && !video.paused) {
+        video.pause()
+      }
+
+      if (document.fullscreenElement) {
+        void document.exitFullscreen().catch(() => {})
+      }
     }
 
     const onBlur = (): void => {
-      leaveFullscreen()
+      leaveFullscreenAndPause()
     }
 
     const onVisibilityChange = (): void => {
       if (document.hidden) {
-        leaveFullscreen()
+        leaveFullscreenAndPause()
       }
     }
 
     window.addEventListener('blur', onBlur)
     document.addEventListener('visibilitychange', onVisibilityChange)
+    const unsubscribeWindowBlur = window.pathnatya.onWindowBlur(leaveFullscreenAndPause)
 
     return () => {
       window.removeEventListener('blur', onBlur)
       document.removeEventListener('visibilitychange', onVisibilityChange)
+      unsubscribeWindowBlur()
     }
   }, [])
 

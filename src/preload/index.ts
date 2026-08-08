@@ -73,6 +73,16 @@ const API = {
     return () => {
       ipcRenderer.removeListener('session-interrupted', handler)
     }
+  },
+  onWindowBlur: (callback: () => void) => {
+    const handler = (): void => {
+      callback()
+    }
+
+    ipcRenderer.on('window-blur', handler)
+    return () => {
+      ipcRenderer.removeListener('window-blur', handler)
+    }
   }
 }
 

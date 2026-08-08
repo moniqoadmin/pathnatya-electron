@@ -50,6 +50,7 @@ export interface PathnatyaAPI {
   tryOfflineLogin: (phoneNumber: string, password: string) => Promise<OfflineLoginResult | null>
   clearOfflineSession: () => Promise<void>
   onSessionInterrupted: (callback: () => void) => () => void
+  onWindowBlur: (callback: () => void) => () => void
 }
 
 declare global {

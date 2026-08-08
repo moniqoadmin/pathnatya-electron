@@ -86,6 +86,14 @@
     "dmg": {
       "title": "Pathnatya Installer"
     },
-    "afterPack": "scripts/after-pack.js"
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "resetAdHocDarwinSignature": true
+    }
   }
 }

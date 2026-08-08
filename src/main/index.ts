@@ -200,6 +200,14 @@ function createWindow(): void {
     }
   })
 
+  // OS-level focus loss (Alt-Tab / Cmd-Tab / clicking another app). More reliable
+  // than renderer window.blur while HTML fullscreen is active on Windows/macOS.
+  mainWindow.on('blur', () => {
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('window-blur')
+    }
+  })
+
   if (!isDev) {
     mainWindow.webContents.on('devtools-opened', () => {
       mainWindow.webContents.closeDevTools()
