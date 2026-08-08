@@ -1,0 +1,91 @@
+{
+  "name": "pathnatya",
+  "version": "1.0.0",
+  "description": "Secure Electron desktop application",
+  "main": "dist/main/index.js",
+  "author": "Pathnatya",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev --outDir=dist",
+    "build": "electron-vite build --outDir=dist",
+    "protect": "node scripts/protect.js",
+    "dist": "npm run build && npm run protect && electron-builder",
+    "dist:win": "npm run build && npm run protect && electron-builder --win",
+    "dist:mac": "npm run build && npm run protect && electron-builder --mac",
+    "dist:all": "npm run build && npm run protect && electron-builder --win --mac",
+    "preview": "electron-vite preview --outDir=dist",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "hls.js": "^1.6.17",
+    "jose": "^6.2.3",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@electron/fuses": "^1.8.0",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.0",
+    "electron": "^36.4.0",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^3.1.0",
+    "glob": "^11.0.3",
+    "javascript-obfuscator": "^4.1.1",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.2.4"
+  },
+  "build": {
+    "appId": "com.pathnatya.app",
+    "productName": "Pathnatya 2026",
+    "asar": true,
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.utilities",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": true
+    },
+    "dmg": {
+      "title": "Pathnatya Installer"
+    },
+    "afterPack": "scripts/after-pack.js"
+  }
+}

@@ -1,0 +1,13 @@
+node_modules/
+dist/
+release/
+out/
+.DS_Store
+*.log
+.env
+.env.*
+Thumbs.db
+*.local
+scripts/.video-temp/
+src/renderer/public/video-encrypted/
+*.security.key
