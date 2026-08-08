@@ -1,12 +1,13 @@
 import { existsSync, promises as fs } from 'fs'
 import { join } from 'path'
 import { app } from 'electron'
+import { decryptAtRest, encryptAtRest } from './hls-offline-crypto'
 
 /** Offline video package is valid for 7 days from download. */
 export const OFFLINE_VIDEO_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 const PACKAGE_DIR_NAME = 'hls-offline'
-const MANIFEST_FILE = 'manifest.json'
+const MANIFEST_FILE = 'manifest.bin'
 const SEGMENTS_DIR = 'segments'
 
 export interface OfflineSegmentMeta {
@@ -66,7 +67,8 @@ function segmentsDir(): string {
 }
 
 export function segmentFileName(index: number): string {
-  return `segment_${String(index).padStart(3, '0')}.ts`
+  // Opaque extension so the OS does not treat encrypted blobs as MPEG-TS video.
+  return `segment_${String(index).padStart(3, '0')}.bin`
 }
 
 export function segmentFilePath(index: number): string {
@@ -89,8 +91,9 @@ async function pathExists(filePath: string): Promise<boolean> {
 
 export async function readOfflineManifest(): Promise<OfflineVideoManifest | null> {
   try {
-    const raw = await fs.readFile(manifestPath(), 'utf8')
-    const parsed = JSON.parse(raw) as OfflineVideoManifest
+    const sealed = await fs.readFile(manifestPath())
+    const raw = await decryptAtRest(sealed)
+    const parsed = JSON.parse(raw.toString('utf8')) as OfflineVideoManifest
 
     if (
       parsed?.version !== 1 ||
@@ -162,12 +165,14 @@ export async function ensureOfflineDirs(): Promise<void> {
 
 export async function writeOfflineSegment(index: number, data: Buffer): Promise<void> {
   await ensureOfflineDirs()
-  await fs.writeFile(segmentFilePath(index), data)
+  const sealed = await encryptAtRest(data)
+  await fs.writeFile(segmentFilePath(index), sealed)
 }
 
 export async function readOfflineSegment(index: number): Promise<Buffer | null> {
   try {
-    return await fs.readFile(segmentFilePath(index))
+    const sealed = await fs.readFile(segmentFilePath(index))
+    return await decryptAtRest(sealed)
   } catch {
     return null
   }
@@ -175,7 +180,8 @@ export async function readOfflineSegment(index: number): Promise<Buffer | null> 
 
 export async function writeOfflineManifest(manifest: OfflineVideoManifest): Promise<void> {
   await ensureOfflineDirs()
-  await fs.writeFile(manifestPath(), JSON.stringify(manifest), 'utf8')
+  const sealed = await encryptAtRest(Buffer.from(JSON.stringify(manifest), 'utf8'))
+  await fs.writeFile(manifestPath(), sealed)
 }
 
 export async function deleteOfflineVideo(): Promise<void> {
@@ -189,17 +195,25 @@ export async function deleteOfflineVideo(): Promise<void> {
 
 export async function purgeExpiredOfflineVideo(): Promise<void> {
   try {
-    const raw = await fs.readFile(manifestPath(), 'utf8')
-    const parsed = JSON.parse(raw) as OfflineVideoManifest
-    if (!parsed?.expiresAt || isExpired(parsed.expiresAt)) {
+    // Legacy plaintext packages used manifest.json — wipe so users re-download encrypted.
+    const legacyManifest = join(packageRoot(), 'manifest.json')
+    if (await pathExists(legacyManifest)) {
+      await deleteOfflineVideo()
+      return
+    }
+
+    if (!(await pathExists(manifestPath()))) {
+      return
+    }
+
+    const manifest = await readOfflineManifest()
+    // null means missing/expired/corrupt — readOfflineManifest already wipes expiry;
+    // wipe leftover corrupt packages that failed decrypt/parse without expiry handling.
+    if (!manifest && (await pathExists(manifestPath()))) {
       await deleteOfflineVideo()
     }
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code
-    if (code !== 'ENOENT') {
-      // Corrupt package — wipe it.
-      await deleteOfflineVideo()
-    }
+  } catch {
+    await deleteOfflineVideo()
   }
 }
 
