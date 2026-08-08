@@ -3,6 +3,8 @@ import { net } from 'electron'
 import { getHlsKey } from './hls-key'
 import {
   OFFLINE_VIDEO_TTL_MS,
+  assertOfflinePackageIntegrity,
+  assertOfflineSegmentIntegrity,
   beginDownload,
   cancelOfflineDownload,
   currentDownloadProgress,
@@ -15,6 +17,7 @@ import {
   markSegmentDownloaded,
   readOfflineSegment,
   segmentFileName,
+  writeOfflineIntegrity,
   writeOfflineManifest,
   writeOfflineSegment,
   type OfflineVideoManifest,
@@ -346,6 +349,9 @@ export async function prepareHlsVideo(sourceUrl = DEFAULT_HLS_SOURCE): Promise<P
 
   const offline = await getValidOfflineManifest()
   if (offline) {
+    // Decrypt each segment in memory, strip headers, then compare hashes before playback.
+    await assertOfflinePackageIntegrity(offline)
+
     return applyResolvedPlaylist(
       {
         segments: segmentsFromOfflineManifest(offline),
@@ -405,6 +411,8 @@ export async function getDecryptedSegment(index: number): Promise<Buffer> {
       }
 
       payload = await fetchWithRetries(segment.url)
+    } else {
+      await assertOfflineSegmentIntegrity(index, payload)
     }
 
     const plaintext = await decryptPayload(index, payload, segment.iv)
@@ -443,6 +451,8 @@ export async function downloadHlsVideoForOffline(
     // Wipe any previous package so a cancelled download cannot leave a partial valid state.
     await deleteOfflineVideo()
 
+    const hashes: string[] = new Array(remote.segments.length)
+
     for (const segment of remote.segments) {
       if (isDownloadCancelled()) {
         await deleteOfflineVideo()
@@ -450,7 +460,7 @@ export async function downloadHlsVideoForOffline(
       }
 
       const payload = await fetchWithRetries(segment.url)
-      await writeOfflineSegment(segment.index, payload)
+      hashes[segment.index] = await writeOfflineSegment(segment.index, payload)
       markSegmentDownloaded(payload.length)
       await emit()
     }
@@ -482,7 +492,10 @@ export async function downloadHlsVideoForOffline(
       }))
     }
 
+    // Hashes live outside the package folder; segments stay under hls-offline/.
+    await writeOfflineIntegrity(hashes)
     await writeOfflineManifest(manifest)
+    await assertOfflinePackageIntegrity(manifest)
 
     // Switch live playback to the offline package so subsequent seeks stay local.
     applyResolvedPlaylist(

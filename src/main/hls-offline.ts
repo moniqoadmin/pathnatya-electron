@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'crypto'
 import { existsSync, promises as fs } from 'fs'
 import { join } from 'path'
 import { app } from 'electron'
@@ -7,6 +8,8 @@ import { decryptAtRest, encryptAtRest } from './hls-offline-crypto'
 export const OFFLINE_VIDEO_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 const PACKAGE_DIR_NAME = 'hls-offline'
+/** Stored outside the package folder so segment blobs and hashes are not co-located. */
+const INTEGRITY_FILE = 'hls-offline.integrity'
 const MANIFEST_FILE = 'manifest.bin'
 const SEGMENTS_DIR = 'segments'
 
@@ -40,6 +43,13 @@ export interface OfflineVideoStatus {
   bytesDownloaded: number
 }
 
+interface OfflineIntegrityManifest {
+  version: 1
+  algorithm: 'sha256'
+  /** SHA-256 hex digests of each segment after at-rest decrypt (header stripped). */
+  hashes: string[]
+}
+
 let downloadState: {
   active: boolean
   cancelled: boolean
@@ -58,6 +68,10 @@ function packageRoot(): string {
   return join(app.getPath('userData'), PACKAGE_DIR_NAME)
 }
 
+function integrityPath(): string {
+  return join(app.getPath('userData'), INTEGRITY_FILE)
+}
+
 function manifestPath(): string {
   return join(packageRoot(), MANIFEST_FILE)
 }
@@ -73,6 +87,20 @@ export function segmentFileName(index: number): string {
 
 export function segmentFilePath(index: number): string {
   return join(segmentsDir(), segmentFileName(index))
+}
+
+export function hashOfflinePayload(data: Buffer): string {
+  return createHash('sha256').update(data).digest('hex')
+}
+
+function hashesMatch(expectedHex: string, actualHex: string): boolean {
+  try {
+    const expected = Buffer.from(expectedHex, 'hex')
+    const actual = Buffer.from(actualHex, 'hex')
+    return expected.length === actual.length && timingSafeEqual(expected, actual)
+  } catch {
+    return false
+  }
 }
 
 function isExpired(expiresAt: string): boolean {
@@ -118,13 +146,97 @@ export async function readOfflineManifest(): Promise<OfflineVideoManifest | null
   }
 }
 
+export async function writeOfflineIntegrity(hashes: string[]): Promise<void> {
+  if (hashes.length === 0 || hashes.some((hash) => !/^[0-9a-f]{64}$/iu.test(hash))) {
+    throw new Error('Offline integrity hashes are invalid.')
+  }
+
+  const payload: OfflineIntegrityManifest = {
+    version: 1,
+    algorithm: 'sha256',
+    hashes
+  }
+  const sealed = await encryptAtRest(Buffer.from(JSON.stringify(payload), 'utf8'))
+  await fs.writeFile(integrityPath(), sealed)
+}
+
+export async function readOfflineIntegrity(): Promise<OfflineIntegrityManifest | null> {
+  try {
+    const sealed = await fs.readFile(integrityPath())
+    const raw = await decryptAtRest(sealed)
+    const parsed = JSON.parse(raw.toString('utf8')) as OfflineIntegrityManifest
+
+    if (
+      parsed?.version !== 1 ||
+      parsed.algorithm !== 'sha256' ||
+      !Array.isArray(parsed.hashes) ||
+      parsed.hashes.length === 0 ||
+      parsed.hashes.some((hash) => typeof hash !== 'string' || !/^[0-9a-f]{64}$/iu.test(hash))
+    ) {
+      return null
+    }
+
+    return parsed
+  } catch {
+    return null
+  }
+}
+
 async function allSegmentFilesPresent(manifest: OfflineVideoManifest): Promise<boolean> {
+  if (!(await pathExists(integrityPath()))) {
+    return false
+  }
+
   for (const segment of manifest.segments) {
     if (!(await pathExists(join(segmentsDir(), segment.file)))) {
       return false
     }
   }
   return true
+}
+
+/**
+ * After at-rest decrypt (header stripped), compare each segment to the separate
+ * integrity file. Throws and wipes the package on mismatch.
+ */
+export async function assertOfflinePackageIntegrity(
+  manifest: OfflineVideoManifest
+): Promise<void> {
+  const integrity = await readOfflineIntegrity()
+  if (!integrity || integrity.hashes.length !== manifest.segments.length) {
+    await deleteOfflineVideo()
+    throw new Error('Offline integrity data is missing or incomplete. Re-download the video.')
+  }
+
+  for (const segment of manifest.segments) {
+    const payload = await readOfflineSegment(segment.index)
+    if (!payload) {
+      await deleteOfflineVideo()
+      throw new Error(`Offline segment ${segment.index} is missing. Re-download the video.`)
+    }
+
+    const actual = hashOfflinePayload(payload)
+    const expected = integrity.hashes[segment.index]
+    if (!expected || !hashesMatch(expected, actual)) {
+      await deleteOfflineVideo()
+      throw new Error(
+        `Offline segment ${segment.index} failed integrity check. Re-download the video.`
+      )
+    }
+  }
+}
+
+/** Verify a single decrypted segment against the integrity store. */
+export async function assertOfflineSegmentIntegrity(
+  index: number,
+  decrypted: Buffer
+): Promise<void> {
+  const integrity = await readOfflineIntegrity()
+  const expected = integrity?.hashes[index]
+  if (!expected || !hashesMatch(expected, hashOfflinePayload(decrypted))) {
+    await deleteOfflineVideo()
+    throw new Error(`Offline segment ${index} failed integrity check. Re-download the video.`)
+  }
 }
 
 export async function getValidOfflineManifest(): Promise<OfflineVideoManifest | null> {
@@ -163,10 +275,12 @@ export async function ensureOfflineDirs(): Promise<void> {
   await fs.mkdir(segmentsDir(), { recursive: true })
 }
 
-export async function writeOfflineSegment(index: number, data: Buffer): Promise<void> {
+export async function writeOfflineSegment(index: number, data: Buffer): Promise<string> {
   await ensureOfflineDirs()
+  const digest = hashOfflinePayload(data)
   const sealed = await encryptAtRest(data)
   await fs.writeFile(segmentFilePath(index), sealed)
+  return digest
 }
 
 export async function readOfflineSegment(index: number): Promise<Buffer | null> {
@@ -186,11 +300,15 @@ export async function writeOfflineManifest(manifest: OfflineVideoManifest): Prom
 
 export async function deleteOfflineVideo(): Promise<void> {
   const root = packageRoot()
-  if (!existsSync(root)) {
-    return
+  if (existsSync(root)) {
+    await fs.rm(root, { recursive: true, force: true })
   }
 
-  await fs.rm(root, { recursive: true, force: true })
+  try {
+    await fs.rm(integrityPath(), { force: true })
+  } catch {
+    // Best-effort cleanup of the separate integrity file.
+  }
 }
 
 export async function purgeExpiredOfflineVideo(): Promise<void> {
@@ -203,6 +321,10 @@ export async function purgeExpiredOfflineVideo(): Promise<void> {
     }
 
     if (!(await pathExists(manifestPath()))) {
+      // Orphan integrity file without a package.
+      if (await pathExists(integrityPath())) {
+        await deleteOfflineVideo()
+      }
       return
     }
 

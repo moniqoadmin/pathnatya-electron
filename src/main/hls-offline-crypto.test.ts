@@ -24,8 +24,16 @@ const {
   isAtRestPayload
 } = await import('./hls-offline-crypto')
 
-const { writeOfflineSegment, readOfflineSegment, writeOfflineManifest, readOfflineManifest, deleteOfflineVideo } =
-  await import('./hls-offline')
+const {
+  assertOfflinePackageIntegrity,
+  deleteOfflineVideo,
+  hashOfflinePayload,
+  readOfflineManifest,
+  readOfflineSegment,
+  writeOfflineIntegrity,
+  writeOfflineManifest,
+  writeOfflineSegment
+} = await import('./hls-offline')
 
 describe('hls-offline-crypto', () => {
   beforeEach(async () => {
@@ -100,5 +108,53 @@ describe('hls-offline at-rest storage', () => {
     expect(onDisk.toString('utf8')).not.toContain('sourceUrl')
 
     await expect(readOfflineManifest()).resolves.toEqual(manifest)
+  })
+
+  it('stores segment hashes outside the package and verifies after decrypt', async () => {
+    const original = Buffer.from('integrity-segment')
+    const digest = await writeOfflineSegment(0, original)
+    expect(digest).toBe(hashOfflinePayload(original))
+
+    await writeOfflineIntegrity([digest])
+
+    const integrityOnDisk = await readFile(join(userDataDir, 'hls-offline.integrity'))
+    expect(isAtRestPayload(integrityOnDisk)).toBe(true)
+    expect(integrityOnDisk.toString('utf8')).not.toContain(digest)
+
+    const manifest = {
+      version: 1 as const,
+      sourceUrl: 'https://pathnatya-video-cdn.b-cdn.net/video-001/playlist.m3u8',
+      downloadedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      totalDurationSeconds: 1,
+      segmentCount: 1,
+      rewrittenPlaylist: '#EXTM3U\n',
+      segments: [{ index: 0, durationSeconds: 1, iv: null, file: 'segment_000.bin' }]
+    }
+    await writeOfflineManifest(manifest)
+
+    await expect(assertOfflinePackageIntegrity(manifest)).resolves.toBeUndefined()
+  })
+
+  it('fails integrity when a decrypted segment does not match its hash', async () => {
+    const digest = await writeOfflineSegment(0, Buffer.from('original-bytes'))
+    await writeOfflineIntegrity([digest])
+
+    // Overwrite segment with different encrypted payload after hashes were recorded.
+    await writeOfflineSegment(0, Buffer.from('tampered-bytes'))
+
+    const manifest = {
+      version: 1 as const,
+      sourceUrl: 'https://pathnatya-video-cdn.b-cdn.net/video-001/playlist.m3u8',
+      downloadedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      totalDurationSeconds: 1,
+      segmentCount: 1,
+      rewrittenPlaylist: '#EXTM3U\n',
+      segments: [{ index: 0, durationSeconds: 1, iv: null, file: 'segment_000.bin' }]
+    }
+    await writeOfflineManifest(manifest)
+
+    await expect(assertOfflinePackageIntegrity(manifest)).rejects.toThrow(/integrity check/u)
   })
 })
