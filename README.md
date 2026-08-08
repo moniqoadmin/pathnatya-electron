@@ -16,6 +16,8 @@ This app uses multiple layers to make source code difficult to access after inst
 | **Electron fuses** | Hardens the binary: blocks Node.js mode, inspect flags, and validates ASAR integrity |
 | **Sandbox + context isolation** | Renderer cannot access Node APIs directly |
 | **DevTools disabled** | Developer tools are blocked in packaged builds |
+| **Content protection** | Window is excluded from screen capture, so screen shares and recorders see the desktop behind it instead of the video |
+| **Capture detection** | On Windows, any app holding an active screen-capture session is detected via the same data the OS privacy indicator uses (so browser and Snipping Tool recordings count too); screen recorders and remote-control apps are also matched by process name, installed Store recorders are discovered by package name and mapped to the executables they run as, and a keyword heuristic catches unknown recorders. Playback pauses and drops out of full screen until capture stops. Note: this is a best-effort deterrent — capture tools using legacy APIs may evade it, which is why content protection above is the real safeguard |
 
 > **Note:** No desktop app can make code 100% impossible to reverse-engineer. This setup provides strong protection against casual extraction. For highly sensitive logic, keep it on a server.
 

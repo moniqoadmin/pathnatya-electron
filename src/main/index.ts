@@ -1,4 +1,4 @@
-import { ipcMain, app, BrowserWindow, shell, protocol } from 'electron'
+import { ipcMain, app, BrowserWindow, shell, protocol, session } from 'electron'
 import { execFile } from 'child_process'
 import { join } from 'path'
 import { promisify } from 'util'
@@ -24,6 +24,11 @@ import {
   type OfflineSessionPayload
 } from './offline-session'
 import { enforceDesktopLaptopOnly } from './platform-guard'
+import {
+  getScreenCaptureState,
+  startScreenCaptureWatch,
+  stopScreenCaptureWatch
+} from './capture-guard'
 
 const isDev = !app.isPackaged
 
@@ -189,9 +194,30 @@ function createWindow(): void {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      backgroundThrottling: false,
       devTools: isDev
     }
   })
+
+  // Excludes the window from screen capture at OS level: WDA_EXCLUDEFROMCAPTURE on
+  // Windows and NSWindowSharingNone on macOS. Screen shares and recorders see the
+  // desktop behind the window instead of the video.
+  const applyContentProtection = (): void => {
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.setContentProtection(true)
+    }
+  }
+
+  applyContentProtection()
+
+  // Windows can drop the capture-exclusion flag when the window is recreated for a
+  // fullscreen or display change, so it is re-applied on every transition.
+  mainWindow.on('enter-full-screen', applyContentProtection)
+  mainWindow.on('leave-full-screen', applyContentProtection)
+  mainWindow.on('enter-html-full-screen', applyContentProtection)
+  mainWindow.on('leave-html-full-screen', applyContentProtection)
+  mainWindow.on('show', applyContentProtection)
+  mainWindow.on('restore', applyContentProtection)
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
@@ -205,6 +231,20 @@ function createWindow(): void {
       mainWindow.webContents.closeDevTools()
     })
   }
+
+  // Keep playback running when focus moves to a screen-sharing app. Only
+  // suspend when this window is actually minimised or hidden.
+  const notifyHidden = (): void => {
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('window-blurred')
+    }
+  }
+
+  mainWindow.on('minimize', notifyHidden)
+  mainWindow.on('hide', notifyHidden)
+
+  startScreenCaptureWatch(mainWindow)
+  mainWindow.on('closed', stopScreenCaptureWatch)
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
@@ -275,6 +315,17 @@ app.whenReady().then(async () => {
   ipcMain.handle('get-system-ip', () => getSystemIpAddress())
 
   ipcMain.handle('is-packaged', () => app.isPackaged)
+
+  ipcMain.handle('get-screen-capture-state', () => getScreenCaptureState())
+
+  // Nothing in the app captures a screen, so refuse every getDisplayMedia request.
+  session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
+    callback({})
+  })
+
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(permission === 'fullscreen')
+  })
 
   ipcMain.handle('set-video-key', (_event, token: string) => {
     setHlsKey(String(token ?? ''))

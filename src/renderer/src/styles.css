@@ -774,6 +774,17 @@ body {
   font-size: 0.9rem;
 }
 
+.video-capture-app {
+  margin: 0;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: rgba(185, 28, 28, 0.72);
+  border: 1px solid rgba(254, 202, 202, 0.35);
+  color: #fff7ed;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
 .video-card:fullscreen .video-player {
   height: 100vh;
 }

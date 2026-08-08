@@ -65,6 +65,7 @@ export default function VideoLoaderPage({
   const volumeRef = useRef(readStoredVolume())
   const lastAudibleVolumeRef = useRef(volumeRef.current > 0 ? volumeRef.current : 1)
   const fullscreenEnteredAtRef = useRef(0)
+  const captureActiveRef = useRef(false)
 
   const [reloadToken, setReloadToken] = useState(0)
   const [playbackReady, setPlaybackReady] = useState(false)
@@ -81,6 +82,8 @@ export default function VideoLoaderPage({
   const [downloadComplete, setDownloadComplete] = useState(false)
   const [fromOffline, setFromOffline] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [captureActive, setCaptureActive] = useState(false)
+  const [captureApp, setCaptureApp] = useState('')
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [deleteBusy, setDeleteBusy] = useState(false)
@@ -117,7 +120,11 @@ export default function VideoLoaderPage({
 
   const togglePlay = useEffectEvent(() => {
     const video = videoRef.current
-    if (!video || document.fullscreenElement !== videoContainerRef.current) {
+    if (
+      !video ||
+      captureActiveRef.current ||
+      document.fullscreenElement !== videoContainerRef.current
+    ) {
       return
     }
 
@@ -162,7 +169,7 @@ export default function VideoLoaderPage({
 
   const enterFullscreen = useEffectEvent(() => {
     const container = videoContainerRef.current
-    if (!container || document.fullscreenElement) {
+    if (!container || captureActiveRef.current || document.fullscreenElement) {
       return
     }
 
@@ -179,6 +186,18 @@ export default function VideoLoaderPage({
     enterFullscreen()
   })
 
+  /** Pauses playback and drops back to the fullscreen gate. */
+  const enforceFullscreenGate = useEffectEvent(() => {
+    const video = videoRef.current
+    if (video && !video.paused) {
+      video.pause()
+    }
+
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => {})
+    }
+  })
+
   // Playback is only allowed in fullscreen, so leaving it pauses the video.
   useEffect(() => {
     const onFullscreenChange = (): void => {
@@ -190,7 +209,7 @@ export default function VideoLoaderPage({
         return
       }
 
-      if (active) {
+      if (active && !captureActiveRef.current) {
         void video.play().catch(() => {})
       } else if (!video.paused) {
         video.pause()
@@ -205,41 +224,82 @@ export default function VideoLoaderPage({
     }
   }, [])
 
-  // Leaving the app (blur / hidden) exits fullscreen so playback requires re-entry.
+  // Switching away from the app (tab / window change, minimise, hide) pauses the
+  // video and exits fullscreen, so coming back requires the fullscreen gate again.
   useEffect(() => {
     // macOS animates entering fullscreen into a new Space, which briefly blurs
-    // the window and can fire visibilitychange. Ignore auto-exit signals during
-    // this grace window so we don't get kicked out the instant we enter.
+    // the window and can fire visibilitychange. Defer during this grace window so
+    // we don't get kicked out the instant we enter.
     const FULLSCREEN_GRACE_MS = 1500
+    let graceTimeoutId = 0
 
-    const leaveFullscreen = (): void => {
-      if (!document.fullscreenElement) {
+    const isAway = (): boolean => document.hidden || !document.hasFocus()
+
+    const handleAway = (): void => {
+      const sinceEntered = Date.now() - fullscreenEnteredAtRef.current
+      if (sinceEntered < FULLSCREEN_GRACE_MS) {
+        window.clearTimeout(graceTimeoutId)
+        graceTimeoutId = window.setTimeout(() => {
+          if (isAway()) {
+            enforceFullscreenGate()
+          }
+        }, FULLSCREEN_GRACE_MS - sinceEntered)
         return
       }
 
-      if (Date.now() - fullscreenEnteredAtRef.current < FULLSCREEN_GRACE_MS) {
-        return
-      }
-
-      void document.exitFullscreen().catch(() => {})
+      enforceFullscreenGate()
     }
 
     const onBlur = (): void => {
-      leaveFullscreen()
+      handleAway()
     }
 
     const onVisibilityChange = (): void => {
       if (document.hidden) {
-        leaveFullscreen()
+        handleAway()
       }
     }
 
     window.addEventListener('blur', onBlur)
     document.addEventListener('visibilitychange', onVisibilityChange)
+    const unsubscribeWindowBlurred = window.pathnatya.onWindowBlurred(() => {
+      handleAway()
+    })
 
     return () => {
+      window.clearTimeout(graceTimeoutId)
       window.removeEventListener('blur', onBlur)
       document.removeEventListener('visibilitychange', onVisibilityChange)
+      unsubscribeWindowBlurred()
+    }
+  }, [])
+
+  // A screen recorder / remote-control app running means the frame could leave this
+  // machine, so playback stops and the fullscreen gate takes over until it is closed.
+  useEffect(() => {
+    const applyCaptureState = (state: { active: boolean; appName: string }): void => {
+      captureActiveRef.current = state.active
+      setCaptureActive(state.active)
+      setCaptureApp(state.appName)
+
+      if (state.active) {
+        enforceFullscreenGate()
+      }
+    }
+
+    let cancelled = false
+
+    void window.pathnatya.getScreenCaptureState().then((state) => {
+      if (!cancelled) {
+        applyCaptureState(state)
+      }
+    })
+
+    const unsubscribe = window.pathnatya.onScreenCaptureChanged(applyCaptureState)
+
+    return () => {
+      cancelled = true
+      unsubscribe()
     }
   }, [])
 
@@ -321,7 +381,14 @@ export default function VideoLoaderPage({
       return
     }
 
-    const onPlay = (): void => setIsPlaying(true)
+    const onPlay = (): void => {
+      if (captureActiveRef.current || document.fullscreenElement !== videoContainerRef.current) {
+        video.pause()
+        return
+      }
+
+      setIsPlaying(true)
+    }
     const onPause = (): void => setIsPlaying(false)
     const onWaiting = (): void => setBuffering(true)
     const onPlaying = (): void => setBuffering(false)
@@ -890,19 +957,33 @@ export default function VideoLoaderPage({
               <span className="video-fullscreen-gate-lock" aria-hidden="true">
                 <IconLock />
               </span>
-              <p className="video-fullscreen-gate-text">
-                Full screen is required to play the video
-              </p>
-              <button
-                type="button"
-                className="video-fullscreen-gate-btn"
-                onClick={toggleFullscreen}
-                aria-label="Enter full screen"
-                title="Enter full screen"
-              >
-                <IconFullscreen />
-              </button>
-              <p className="video-fullscreen-gate-hint">Click the icon to go full screen</p>
+              {captureActive ? (
+                <>
+                  <p className="video-fullscreen-gate-text">
+                    Screen recording or sharing detected
+                  </p>
+                  <p className="video-capture-app">Detected: {captureApp || 'a capture app'}</p>
+                  <p className="video-fullscreen-gate-hint">
+                    Playback is paused. Stop the recording or screen share to continue watching.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="video-fullscreen-gate-text">
+                    Full screen is required to play the video
+                  </p>
+                  <button
+                    type="button"
+                    className="video-fullscreen-gate-btn"
+                    onClick={toggleFullscreen}
+                    aria-label="Enter full screen"
+                    title="Enter full screen"
+                  >
+                    <IconFullscreen />
+                  </button>
+                  <p className="video-fullscreen-gate-hint">Click the icon to go full screen</p>
+                </>
+              )}
             </div>
           )}
         </div>

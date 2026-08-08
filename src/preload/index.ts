@@ -13,6 +13,11 @@ export type HlsOfflineStatus = {
   bytesDownloaded: number
 }
 
+export type ScreenCaptureState = {
+  active: boolean
+  appName: string
+}
+
 const API = {
   getVersion: () => API_VERSION,
   getPlatform: () => process.platform,
@@ -72,6 +77,28 @@ const API = {
     ipcRenderer.on('session-interrupted', handler)
     return () => {
       ipcRenderer.removeListener('session-interrupted', handler)
+    }
+  },
+  onWindowBlurred: (callback: () => void) => {
+    const handler = (): void => {
+      callback()
+    }
+
+    ipcRenderer.on('window-blurred', handler)
+    return () => {
+      ipcRenderer.removeListener('window-blurred', handler)
+    }
+  },
+  getScreenCaptureState: () =>
+    ipcRenderer.invoke('get-screen-capture-state') as Promise<ScreenCaptureState>,
+  onScreenCaptureChanged: (callback: (state: ScreenCaptureState) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: ScreenCaptureState): void => {
+      callback(state)
+    }
+
+    ipcRenderer.on('screen-capture-changed', handler)
+    return () => {
+      ipcRenderer.removeListener('screen-capture-changed', handler)
     }
   }
 }
