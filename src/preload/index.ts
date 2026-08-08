@@ -79,14 +79,14 @@ const API = {
       ipcRenderer.removeListener('session-interrupted', handler)
     }
   },
-  onWindowBlurred: (callback: () => void) => {
+  onWindowBlur: (callback: () => void) => {
     const handler = (): void => {
       callback()
     }
 
-    ipcRenderer.on('window-blurred', handler)
+    ipcRenderer.on('window-blur', handler)
     return () => {
-      ipcRenderer.removeListener('window-blurred', handler)
+      ipcRenderer.removeListener('window-blur', handler)
     }
   },
   getScreenCaptureState: () =>

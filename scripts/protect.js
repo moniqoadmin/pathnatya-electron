@@ -1,6 +1,11 @@
 /**
  * Post-build protection pipeline.
- * Obfuscates all JavaScript in dist/ before electron-builder packages the app.
+ * Obfuscates JavaScript in dist/ before electron-builder packages the app.
+ *
+ * Main/preload get stronger protection (secrets / IPC surface).
+ * Renderer gets light obfuscation only — heavy options like debugProtection /
+ * selfDefending / deadCodeInjection cause severe UI lag on macOS Electron
+ * (janky typing even on login), while adding little real security for UI code.
  */
 const fs = require('fs')
 const path = require('path')
@@ -9,21 +14,27 @@ const JavaScriptObfuscator = require('javascript-obfuscator')
 
 const DIST_DIR = path.join(__dirname, '..', 'dist')
 
-const OBFUSCATOR_OPTIONS = {
+/** Shared safe defaults — never enable debugProtection / selfDefending in Electron. */
+const BASE_OPTIONS = {
   compact: true,
-  controlFlowFlattening: true,
-  controlFlowFlatteningThreshold: 0.75,
-  deadCodeInjection: true,
-  deadCodeInjectionThreshold: 0.4,
-  debugProtection: true,
-  debugProtectionInterval: 4000,
   disableConsoleOutput: true,
   identifierNamesGenerator: 'hexadecimal',
   log: false,
-  numbersToExpressions: true,
   renameGlobals: false,
-  selfDefending: true,
   simplify: true,
+  // These fight DevTools auto-close and burn CPU on every frame / keystroke.
+  debugProtection: false,
+  selfDefending: false,
+  unicodeEscapeSequence: false
+}
+
+/** Stronger protection for main process + preload (not on the hot UI path). */
+const MAIN_PRELOAD_OPTIONS = {
+  ...BASE_OPTIONS,
+  controlFlowFlattening: true,
+  controlFlowFlatteningThreshold: 0.5,
+  deadCodeInjection: false,
+  numbersToExpressions: true,
   splitStrings: true,
   splitStringsChunkLength: 10,
   stringArray: true,
@@ -32,18 +43,44 @@ const OBFUSCATOR_OPTIONS = {
   stringArrayIndexShift: true,
   stringArrayRotate: true,
   stringArrayShuffle: true,
-  stringArrayWrappersCount: 2,
+  stringArrayWrappersCount: 1,
   stringArrayWrappersChainedCalls: true,
-  stringArrayWrappersParametersMaxCount: 4,
+  stringArrayWrappersParametersMaxCount: 2,
   stringArrayWrappersType: 'function',
   stringArrayThreshold: 0.75,
-  transformObjectKeys: true,
-  unicodeEscapeSequence: false
+  transformObjectKeys: true
+}
+
+/** Light protection for renderer — keep React responsive on macOS. */
+const RENDERER_OPTIONS = {
+  ...BASE_OPTIONS,
+  controlFlowFlattening: false,
+  deadCodeInjection: false,
+  numbersToExpressions: false,
+  splitStrings: false,
+  stringArray: true,
+  stringArrayCallsTransform: false,
+  stringArrayEncoding: ['base64'],
+  stringArrayIndexShift: true,
+  stringArrayRotate: true,
+  stringArrayShuffle: true,
+  stringArrayWrappersCount: 1,
+  stringArrayWrappersChainedCalls: false,
+  stringArrayThreshold: 0.5,
+  transformObjectKeys: false
+}
+
+function optionsForFile(filePath) {
+  const relative = path.relative(DIST_DIR, filePath).split(path.sep).join('/')
+  if (relative.startsWith('renderer/')) {
+    return RENDERER_OPTIONS
+  }
+  return MAIN_PRELOAD_OPTIONS
 }
 
 function obfuscateFile(filePath) {
   const source = fs.readFileSync(filePath, 'utf8')
-  const result = JavaScriptObfuscator.obfuscate(source, OBFUSCATOR_OPTIONS)
+  const result = JavaScriptObfuscator.obfuscate(source, optionsForFile(filePath))
   fs.writeFileSync(filePath, result.getObfuscatedCode(), 'utf8')
   console.log(`Protected: ${path.relative(process.cwd(), filePath)}`)
 }

@@ -224,8 +224,7 @@ export default function VideoLoaderPage({
     }
   }, [])
 
-  // Switching away from the app (tab / window change, minimise, hide) pauses the
-  // video and exits fullscreen, so coming back requires the fullscreen gate again.
+  // Leaving the app (OS focus loss / hidden / minimise) exits fullscreen and pauses.
   useEffect(() => {
     // macOS animates entering fullscreen into a new Space, which briefly blurs
     // the window and can fire visibilitychange. Defer during this grace window so
@@ -262,7 +261,7 @@ export default function VideoLoaderPage({
 
     window.addEventListener('blur', onBlur)
     document.addEventListener('visibilitychange', onVisibilityChange)
-    const unsubscribeWindowBlurred = window.pathnatya.onWindowBlurred(() => {
+    const unsubscribeWindowBlur = window.pathnatya.onWindowBlur(() => {
       handleAway()
     })
 
@@ -270,7 +269,7 @@ export default function VideoLoaderPage({
       window.clearTimeout(graceTimeoutId)
       window.removeEventListener('blur', onBlur)
       document.removeEventListener('visibilitychange', onVisibilityChange)
-      unsubscribeWindowBlurred()
+      unsubscribeWindowBlur()
     }
   }, [])
 

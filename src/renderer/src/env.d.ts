@@ -55,7 +55,7 @@ export interface PathnatyaAPI {
   tryOfflineLogin: (phoneNumber: string, password: string) => Promise<OfflineLoginResult | null>
   clearOfflineSession: () => Promise<void>
   onSessionInterrupted: (callback: () => void) => () => void
-  onWindowBlurred: (callback: () => void) => () => void
+  onWindowBlur: (callback: () => void) => () => void
   getScreenCaptureState: () => Promise<ScreenCaptureState>
   onScreenCaptureChanged: (callback: (state: ScreenCaptureState) => void) => () => void
 }

@@ -226,22 +226,23 @@ function createWindow(): void {
     }
   })
 
+  // OS-level focus loss (Alt-Tab / Cmd-Tab / click another app) and minimise/hide.
+  // More reliable than renderer window.blur while HTML fullscreen is active.
+  const notifyAway = (): void => {
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('window-blur')
+    }
+  }
+
+  mainWindow.on('blur', notifyAway)
+  mainWindow.on('minimize', notifyAway)
+  mainWindow.on('hide', notifyAway)
+
   if (!isDev) {
     mainWindow.webContents.on('devtools-opened', () => {
       mainWindow.webContents.closeDevTools()
     })
   }
-
-  // Keep playback running when focus moves to a screen-sharing app. Only
-  // suspend when this window is actually minimised or hidden.
-  const notifyHidden = (): void => {
-    if (!mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('window-blurred')
-    }
-  }
-
-  mainWindow.on('minimize', notifyHidden)
-  mainWindow.on('hide', notifyHidden)
 
   startScreenCaptureWatch(mainWindow)
   mainWindow.on('closed', stopScreenCaptureWatch)
