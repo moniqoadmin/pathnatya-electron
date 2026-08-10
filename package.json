@@ -1,6 +1,6 @@
 {
   "name": "pathnatya",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Secure Electron desktop application",
   "main": "dist/main/index.js",
   "author": "Pathnatya",
