@@ -32,6 +32,12 @@ export default function LoginPage({
     saveSession(offline.token, offline.account)
     saveLoginTokens(offline.loginTokens)
     await applyVideoKey(offline.loginTokens)
+
+    // Online-only accounts must not keep a leftover local package.
+    if (!offline.account.isOffline) {
+      await window.pathnatya.clearHlsOfflineVideo()
+    }
+
     onSuccess(offline.account)
     return true
   }

@@ -21,10 +21,10 @@ export default function LandingPage({ onContinue }: LandingPageProps) {
           </li>
           <li>You will be automatically logged out after 60 minutes.</li>
           <li>
-            Download the video while online to watch it offline for 7 days on this device.
+            The first login takes a few minutes while the video is prepared on this device.
           </li>
           <li>
-            Offline login is available for 7 days after a successful online login on this device.
+            After a successful online login, you can keep watching on this device for 7 days.
           </li>
           <li>Video access will be removed after 15 August 2026.</li>
         </ul>

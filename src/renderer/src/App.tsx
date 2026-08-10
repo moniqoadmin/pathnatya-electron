@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { Account } from './api/accounts'
-import OfflineToast from './components/OfflineToast'
 import { clearHlsPlayback } from './lib/hls-loader'
 import { clearAllStorage } from './lib/storage'
 import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
 import PhoneCheckPage from './pages/PhoneCheckPage'
+import PreparingVideoPage from './pages/PreparingVideoPage'
 import SetPasswordPage from './pages/SetPasswordPage'
 import VideoLoaderPage from './pages/VideoLoaderPage'
 
-type Page = 'landing' | 'phone-check' | 'set-password' | 'login' | 'video'
+type Page = 'landing' | 'phone-check' | 'set-password' | 'login' | 'preparing' | 'video'
 
 const SESSION_TIMEOUT_MS = 60 * 60 * 1000
 
@@ -27,6 +27,10 @@ export default function App() {
     setAccount(null)
     setPhoneNumber('')
     setPage('landing')
+  }, [])
+
+  const handleVideoReady = useCallback(() => {
+    setPage('video')
   }, [])
 
   let content: ReactNode
@@ -68,10 +72,12 @@ export default function App() {
         }}
         onSuccess={(loggedInAccount) => {
           setAccount(loggedInAccount)
-          setPage('video')
+          setPage(loggedInAccount.isOffline ? 'preparing' : 'video')
         }}
       />
     )
+  } else if (page === 'preparing' && account) {
+    content = <PreparingVideoPage onReady={handleVideoReady} onLogout={handleLogout} />
   } else if (account) {
     content = (
       <VideoLoaderPage
@@ -84,10 +90,5 @@ export default function App() {
     content = <LandingPage onContinue={() => setPage('phone-check')} />
   }
 
-  return (
-    <>
-      {content}
-      <OfflineToast />
-    </>
-  )
+  return <>{content}</>
 }

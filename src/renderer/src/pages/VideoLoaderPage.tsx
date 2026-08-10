@@ -1,10 +1,8 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import type Hls from 'hls.js'
 import type { Account } from '../api/accounts'
+import OfflineToast from '../components/OfflineToast'
 import {
-  IconCheck,
-  IconClose,
-  IconDownload,
   IconFullscreen,
   IconFullscreenExit,
   IconLock,
@@ -19,21 +17,15 @@ import {
 } from '../components/VideoIcons'
 import {
   attachHlsPlayer,
-  cancelHlsDownload,
   clearHlsOfflineVideo,
   clearHlsPlayback,
-  downloadHlsVideo,
-  getHlsOfflineStatus,
   isHlsSupported,
-  onHlsDownloadProgress,
   prepareHlsPlayback
 } from '../lib/hls-loader'
 import { isLowDownloadSpeed, isOffline } from '../lib/network'
 import { readStoredVolume, writeStoredVolume } from '../lib/player-prefs'
 import { clearAllStorage, clearSession } from '../lib/storage'
 import { drawWatermarkedFrame, formatTime } from '../lib/video-frame'
-
-type OfflineStatus = Awaited<ReturnType<typeof getHlsOfflineStatus>>
 
 interface VideoLoaderPageProps {
   account: Account
@@ -51,7 +43,6 @@ const VIDEO_SCENES: Array<{ scene: number; label: string; time: number }> = [
 ]
 
 const BANDWIDTH_POLL_MS = 5000
-const DOWNLOAD_COMPLETE_MS = 6000
 
 export default function VideoLoaderPage({
   account,
@@ -77,38 +68,13 @@ export default function VideoLoaderPage({
   const [duration, setDuration] = useState(0)
   const [volume, setVolume] = useState(() => volumeRef.current)
   const [networkMbps, setNetworkMbps] = useState<number | null>(null)
-  const [offlineStatus, setOfflineStatus] = useState<OfflineStatus | null>(null)
-  const [downloadError, setDownloadError] = useState('')
-  const [downloadComplete, setDownloadComplete] = useState(false)
   const [fromOffline, setFromOffline] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [captureActive, setCaptureActive] = useState(false)
   const [captureApp, setCaptureApp] = useState('')
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
-  const [deleteConfirmText, setDeleteConfirmText] = useState('')
-  const [deleteBusy, setDeleteBusy] = useState(false)
 
   const watermarkText = account.phoneNumber
   const showLowNetworkSpeed = isLowDownloadSpeed(networkMbps) && !fromOffline
-
-  function formatExpiry(iso: string | null): string {
-    if (!iso) {
-      return ''
-    }
-
-    const date = new Date(iso)
-    if (Number.isNaN(date.getTime())) {
-      return ''
-    }
-
-    return date.toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit'
-    })
-  }
 
   const drawFrame = useEffectEvent(() => {
     const video = videoRef.current
@@ -315,7 +281,6 @@ export default function VideoLoaderPage({
       setCurrentTime(0)
       setDuration(0)
       setFromOffline(false)
-      setDownloadError('')
 
       hlsRef.current?.destroy()
       hlsRef.current = null
@@ -351,11 +316,6 @@ export default function VideoLoaderPage({
         })
 
         setPlaybackReady(true)
-        void getHlsOfflineStatus().then((status) => {
-          if (!cancelled) {
-            setOfflineStatus(status)
-          }
-        })
       } catch (error) {
         if (cancelled) {
           return
@@ -587,126 +547,6 @@ export default function VideoLoaderPage({
     }
   }, [])
 
-  useEffect(() => {
-    let cancelled = false
-
-    void getHlsOfflineStatus().then((status) => {
-      if (!cancelled) {
-        setOfflineStatus(status)
-      }
-    })
-
-    const unsubscribe = onHlsDownloadProgress((progress) => {
-      setOfflineStatus(progress)
-    })
-
-    return () => {
-      cancelled = true
-      unsubscribe()
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!downloadComplete) {
-      return
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setDownloadComplete(false)
-    }, DOWNLOAD_COMPLETE_MS)
-
-    return () => {
-      window.clearTimeout(timeoutId)
-    }
-  }, [downloadComplete])
-
-  async function handleDownload(): Promise<void> {
-    if (
-      !account.isOffline ||
-      offlineStatus?.downloading ||
-      offlineStatus?.available ||
-      isOffline()
-    ) {
-      return
-    }
-
-    setDownloadError('')
-    setDownloadComplete(false)
-    try {
-      const status = await downloadHlsVideo()
-      setOfflineStatus(status)
-      setFromOffline(true)
-      setDownloadComplete(status.available)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to download video.'
-      if (!message.toLowerCase().includes('cancelled')) {
-        setDownloadError(message)
-      }
-      const status = await getHlsOfflineStatus()
-      setOfflineStatus(status)
-    }
-  }
-
-  async function handleCancelDownload(): Promise<void> {
-    await cancelHlsDownload()
-  }
-
-  async function openDeleteConfirm(): Promise<void> {
-    if (!offlineStatus?.available || offlineStatus.downloading || deleteBusy) {
-      return
-    }
-
-    if (document.fullscreenElement) {
-      try {
-        await document.exitFullscreen()
-      } catch {
-        // Continue to the confirm dialog even if exit fullscreen fails.
-      }
-    }
-
-    setDeleteConfirmText('')
-    setDownloadError('')
-    setDeleteConfirmOpen(true)
-  }
-
-  function closeDeleteConfirm(): void {
-    if (deleteBusy) {
-      return
-    }
-
-    setDeleteConfirmOpen(false)
-    setDeleteConfirmText('')
-  }
-
-  async function handleConfirmDeleteOffline(): Promise<void> {
-    if (deleteConfirmText.trim().toLowerCase() !== 'delete' || deleteBusy) {
-      return
-    }
-
-    setDeleteBusy(true)
-    setDownloadError('')
-
-    try {
-      const wasPlayingOffline = fromOffline
-      await clearHlsOfflineVideo()
-      const status = await getHlsOfflineStatus()
-      setOfflineStatus(status)
-      setDownloadComplete(false)
-      setFromOffline(false)
-      setDeleteConfirmOpen(false)
-      setDeleteConfirmText('')
-
-      if (wasPlayingOffline) {
-        setReloadToken((token) => token + 1)
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to delete offline video.'
-      setDownloadError(message)
-    } finally {
-      setDeleteBusy(false)
-    }
-  }
-
   function handleLogout(): void {
     hlsRef.current?.destroy()
     hlsRef.current = null
@@ -716,20 +556,11 @@ export default function VideoLoaderPage({
   }
 
   function handleRefresh(): void {
-    if (videoLoading || offlineStatus?.downloading) {
+    if (videoLoading) {
       return
     }
     setReloadToken((token) => token + 1)
   }
-
-  const offlineBadge =
-    offlineStatus?.available && offlineStatus.expiresAt
-      ? `Offline until ${formatExpiry(offlineStatus.expiresAt)}`
-      : fromOffline
-        ? 'Playing offline'
-        : ''
-
-  const canConfirmDelete = deleteConfirmText.trim().toLowerCase() === 'delete'
 
   return (
     <div className="page video-page">
@@ -744,89 +575,32 @@ export default function VideoLoaderPage({
       </header>
 
       <section ref={videoContainerRef} className="video-card card">
+        {/* Inside the fullscreen element so the toast stays visible during playback. */}
+        {!account.isOffline && <OfflineToast />}
+
         <div className="video-overlay-actions">
           {showLowNetworkSpeed && (
             <p className="video-network-warning" role="status" aria-live="polite">
               Low internet speed
             </p>
           )}
-          {offlineBadge && !downloadComplete && (
-            <div className="video-offline-badge" role="status" aria-live="polite">
-              <span>{offlineBadge}</span>
-              {offlineStatus?.available && (
-                <button
-                  type="button"
-                  className="video-offline-badge-clear"
-                  onClick={() => void openDeleteConfirm()}
-                  aria-label="Delete offline video"
-                  title="Delete offline video"
-                  disabled={deleteBusy || Boolean(offlineStatus.downloading)}
-                >
-                  <IconClose />
-                </button>
-              )}
-            </div>
-          )}
-          {account.isOffline &&
-            (offlineStatus?.downloading ? (
-              <>
-                <div className="video-download-progress" role="status" aria-live="polite">
-                  <span className="video-download-progress-label">
-                    Downloading {offlineStatus.percent}%
-                  </span>
-                  <div
-                    className="video-download-track"
-                    role="progressbar"
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={offlineStatus.percent}
-                    aria-label="Offline download progress"
-                  >
-                    <div
-                      className="video-download-fill"
-                      style={{ width: `${Math.min(100, Math.max(0, offlineStatus.percent))}%` }}
-                    />
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="video-overlay-btn video-overlay-btn-text"
-                  onClick={() => void handleCancelDownload()}
-                >
-                  Cancel
-                </button>
-              </>
-            ) : downloadComplete ? (
-              <p className="video-download-complete" role="status" aria-live="polite">
-                <span className="video-download-complete-icon" aria-hidden="true">
-                  <IconCheck />
-                </span>
-                Download complete
-              </p>
-            ) : (
-              !offlineStatus?.available && (
-                <button
-                  type="button"
-                  className="video-overlay-btn video-overlay-btn-icon"
-                  onClick={() => void handleDownload()}
-                  aria-label="Download for offline"
-                  title="Download for offline (7 days)"
-                  disabled={videoLoading || isOffline()}
-                >
-                  <IconDownload />
-                </button>
-              )
-            ))}
           <button
             type="button"
             className="video-overlay-btn video-overlay-btn-icon"
             onClick={handleRefresh}
             aria-label="Restart video"
             title="Restart video"
-            disabled={videoLoading || Boolean(offlineStatus?.downloading)}
+            disabled={videoLoading}
           >
             <IconRefresh />
           </button>
+          {fromOffline && (
+            <span
+              className="video-local-dot"
+              aria-hidden="true"
+              title="Playing prepared video"
+            />
+          )}
           {isFullscreen && (
             <button
               type="button"
@@ -841,14 +615,9 @@ export default function VideoLoaderPage({
         </div>
 
         <div className="video-player">
-          {videoLoading && <p className="video-status">Preparing video...</p>}
+          {videoLoading && <p className="video-status">Loading video...</p>}
           {buffering && !videoLoading && !videoError && (
             <p className="video-status video-status-seek">Loading...</p>
-          )}
-          {downloadError && !videoError && (
-            <p className="form-error video-download-error" role="alert">
-              {downloadError}
-            </p>
           )}
           {videoError && <p className="form-error video-status">{videoError}</p>}
 
@@ -992,72 +761,6 @@ export default function VideoLoaderPage({
           )}
         </div>
       </section>
-
-      {deleteConfirmOpen && (
-        <div
-          className="confirm-dialog-backdrop"
-          role="presentation"
-          onClick={closeDeleteConfirm}
-        >
-          <div
-            className="confirm-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="delete-offline-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h2 id="delete-offline-title">Delete offline video?</h2>
-            <p>
-              This removes the downloaded video from this device. Type <strong>delete</strong> to
-              confirm.
-            </p>
-            <label className="confirm-dialog-label" htmlFor="delete-offline-input">
-              Confirmation
-            </label>
-            <input
-              id="delete-offline-input"
-              className="confirm-dialog-input"
-              type="text"
-              value={deleteConfirmText}
-              onChange={(event) => setDeleteConfirmText(event.target.value)}
-              placeholder='Type "delete"'
-              autoFocus
-              autoComplete="off"
-              spellCheck={false}
-              disabled={deleteBusy}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && canConfirmDelete) {
-                  event.preventDefault()
-                  void handleConfirmDeleteOffline()
-                }
-
-                if (event.key === 'Escape') {
-                  event.preventDefault()
-                  closeDeleteConfirm()
-                }
-              }}
-            />
-            <div className="confirm-dialog-actions">
-              <button
-                type="button"
-                className="confirm-dialog-btn confirm-dialog-btn-secondary"
-                onClick={closeDeleteConfirm}
-                disabled={deleteBusy}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="confirm-dialog-btn confirm-dialog-btn-danger"
-                onClick={() => void handleConfirmDeleteOffline()}
-                disabled={!canConfirmDelete || deleteBusy}
-              >
-                {deleteBusy ? 'Deleting…' : 'Delete video'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
