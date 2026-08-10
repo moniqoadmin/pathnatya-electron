@@ -74,6 +74,10 @@ export default function LoginPage({
       saveLoginTokens(keys)
       await applyVideoKey(keys)
 
+      if (!account.isOffline) {
+        await window.pathnatya.clearHlsOfflineVideo()
+      }
+
       await window.pathnatya.saveOfflineSession({
         phoneNumber: trimmed,
         account,

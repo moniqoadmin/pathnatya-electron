@@ -325,6 +325,11 @@ export default function VideoLoaderPage({
           throw new Error('This build of Chromium cannot play HLS streams.')
         }
 
+        // Online-only accounts must not keep or play a local offline package.
+        if (!account.isOffline) {
+          await clearHlsOfflineVideo()
+        }
+
         const prepared = await prepareHlsPlayback()
         if (cancelled) {
           return
@@ -372,7 +377,7 @@ export default function VideoLoaderPage({
       hlsRef.current?.destroy()
       hlsRef.current = null
     }
-  }, [reloadToken])
+  }, [reloadToken, account.isOffline])
 
   useEffect(() => {
     const video = videoRef.current

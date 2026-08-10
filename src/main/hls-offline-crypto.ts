@@ -13,6 +13,14 @@ const KEY_LENGTH = 32
 const HEADER_LENGTH = OFFLINE_AT_REST_MAGIC.length + 1 + NONCE_LENGTH
 const KEY_FILE = 'hls-offline.atrest'
 
+function offlineCryptoLog(message: string, detail?: Record<string, unknown>): void {
+  if (detail) {
+    console.log(`[hls-offline:crypto] ${message}`, detail)
+  } else {
+    console.log(`[hls-offline:crypto] ${message}`)
+  }
+}
+
 /**
  * Layout on disk:
  *   MAGIC(4) | VERSION(1) | NONCE(12) | CIPHERTEXT | AUTH_TAG(16)
@@ -60,9 +68,14 @@ async function getOrCreatePackageKey(): Promise<Buffer> {
   try {
     const key = randomBytes(KEY_LENGTH)
     await fs.writeFile(path, sealKey(key.toString('hex')))
+    offlineCryptoLog('created at-rest package key', {
+      path,
+      safeStorage: safeStorage.isEncryptionAvailable()
+    })
     return key
   } catch {
     // Cannot persist (e.g. tests without a writable userData) — deterministic fallback.
+    offlineCryptoLog('using fallback at-rest key (could not persist)')
     return fallbackKey()
   }
 }
@@ -82,13 +95,22 @@ export async function encryptAtRest(plaintext: Buffer): Promise<Buffer> {
   const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()])
   const tag = cipher.getAuthTag()
 
-  return Buffer.concat([
+  const sealed = Buffer.concat([
     OFFLINE_AT_REST_MAGIC,
     Buffer.from([OFFLINE_AT_REST_VERSION]),
     nonce,
     ciphertext,
     tag
   ])
+
+  offlineCryptoLog('encrypt + header', {
+    plaintextBytes: plaintext.length,
+    sealedBytes: sealed.length,
+    magic: OFFLINE_AT_REST_MAGIC.toString('utf8'),
+    version: OFFLINE_AT_REST_VERSION
+  })
+
+  return sealed
 }
 
 /**
@@ -97,11 +119,13 @@ export async function encryptAtRest(plaintext: Buffer): Promise<Buffer> {
  */
 export async function decryptAtRest(payload: Buffer): Promise<Buffer> {
   if (!isAtRestPayload(payload)) {
+    offlineCryptoLog('decrypt failed: missing at-rest header', { sealedBytes: payload.length })
     throw new Error('Offline package is missing the expected at-rest header.')
   }
 
   const version = payload[OFFLINE_AT_REST_MAGIC.length]
   if (version !== OFFLINE_AT_REST_VERSION) {
+    offlineCryptoLog('decrypt failed: unsupported version', { version })
     throw new Error(`Unsupported offline package version ${version}.`)
   }
 
@@ -114,5 +138,13 @@ export async function decryptAtRest(payload: Buffer): Promise<Buffer> {
   const decipher = createDecipheriv('aes-256-gcm', key, nonce)
   decipher.setAuthTag(tag)
 
-  return Buffer.concat([decipher.update(ciphertext), decipher.final()])
+  const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()])
+  offlineCryptoLog('decrypt + strip header', {
+    sealedBytes: payload.length,
+    plaintextBytes: plaintext.length,
+    magic: OFFLINE_AT_REST_MAGIC.toString('utf8'),
+    version
+  })
+
+  return plaintext
 }

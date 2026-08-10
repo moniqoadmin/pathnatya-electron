@@ -13,6 +13,18 @@ const INTEGRITY_FILE = 'hls-offline.integrity'
 const MANIFEST_FILE = 'manifest.bin'
 const SEGMENTS_DIR = 'segments'
 
+function offlineLog(message: string, detail?: Record<string, unknown>): void {
+  if (detail) {
+    console.log(`[hls-offline] ${message}`, detail)
+  } else {
+    console.log(`[hls-offline] ${message}`)
+  }
+}
+
+function shortHash(hex: string): string {
+  return `${hex.slice(0, 12)}…`
+}
+
 export interface OfflineSegmentMeta {
   index: number
   durationSeconds: number
@@ -158,6 +170,11 @@ export async function writeOfflineIntegrity(hashes: string[]): Promise<void> {
   }
   const sealed = await encryptAtRest(Buffer.from(JSON.stringify(payload), 'utf8'))
   await fs.writeFile(integrityPath(), sealed)
+  offlineLog('wrote integrity file', {
+    path: integrityPath(),
+    segmentCount: hashes.length,
+    sampleHash: shortHash(hashes[0] ?? '')
+  })
 }
 
 export async function readOfflineIntegrity(): Promise<OfflineIntegrityManifest | null> {
@@ -202,8 +219,14 @@ async function allSegmentFilesPresent(manifest: OfflineVideoManifest): Promise<b
 export async function assertOfflinePackageIntegrity(
   manifest: OfflineVideoManifest
 ): Promise<void> {
+  offlineLog('starting full integrity check', { segmentCount: manifest.segments.length })
+
   const integrity = await readOfflineIntegrity()
   if (!integrity || integrity.hashes.length !== manifest.segments.length) {
+    offlineLog('integrity check failed: missing/incomplete hash file', {
+      expected: manifest.segments.length,
+      actual: integrity?.hashes.length ?? 0
+    })
     await deleteOfflineVideo()
     throw new Error('Offline integrity data is missing or incomplete. Re-download the video.')
   }
@@ -211,19 +234,33 @@ export async function assertOfflinePackageIntegrity(
   for (const segment of manifest.segments) {
     const payload = await readOfflineSegment(segment.index)
     if (!payload) {
+      offlineLog('integrity check failed: segment missing after decrypt', {
+        index: segment.index
+      })
       await deleteOfflineVideo()
       throw new Error(`Offline segment ${segment.index} is missing. Re-download the video.`)
     }
 
     const actual = hashOfflinePayload(payload)
     const expected = integrity.hashes[segment.index]
-    if (!expected || !hashesMatch(expected, actual)) {
+    const ok = Boolean(expected && hashesMatch(expected, actual))
+    offlineLog('hash compare', {
+      index: segment.index,
+      bytes: payload.length,
+      expected: expected ? shortHash(expected) : null,
+      actual: shortHash(actual),
+      ok
+    })
+
+    if (!ok) {
       await deleteOfflineVideo()
       throw new Error(
         `Offline segment ${segment.index} failed integrity check. Re-download the video.`
       )
     }
   }
+
+  offlineLog('full integrity check passed', { segmentCount: manifest.segments.length })
 }
 
 /** Verify a single decrypted segment against the integrity store. */
@@ -233,7 +270,17 @@ export async function assertOfflineSegmentIntegrity(
 ): Promise<void> {
   const integrity = await readOfflineIntegrity()
   const expected = integrity?.hashes[index]
-  if (!expected || !hashesMatch(expected, hashOfflinePayload(decrypted))) {
+  const actual = hashOfflinePayload(decrypted)
+  const ok = Boolean(expected && hashesMatch(expected, actual))
+  offlineLog('hash compare (playback)', {
+    index,
+    bytes: decrypted.length,
+    expected: expected ? shortHash(expected) : null,
+    actual: shortHash(actual),
+    ok
+  })
+
+  if (!ok) {
     await deleteOfflineVideo()
     throw new Error(`Offline segment ${index} failed integrity check. Re-download the video.`)
   }
@@ -280,6 +327,13 @@ export async function writeOfflineSegment(index: number, data: Buffer): Promise<
   const digest = hashOfflinePayload(data)
   const sealed = await encryptAtRest(data)
   await fs.writeFile(segmentFilePath(index), sealed)
+  offlineLog('wrote encrypted segment', {
+    index,
+    plaintextBytes: data.length,
+    sealedBytes: sealed.length,
+    hash: shortHash(digest),
+    file: segmentFileName(index)
+  })
   return digest
 }
 

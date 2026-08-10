@@ -349,6 +349,10 @@ export async function prepareHlsVideo(sourceUrl = DEFAULT_HLS_SOURCE): Promise<P
 
   const offline = await getValidOfflineManifest()
   if (offline) {
+    console.log('[hls-offline] preparing offline playback — verifying package first', {
+      segmentCount: offline.segmentCount,
+      expiresAt: offline.expiresAt
+    })
     // Decrypt each segment in memory, strip headers, then compare hashes before playback.
     await assertOfflinePackageIntegrity(offline)
 
@@ -360,6 +364,8 @@ export async function prepareHlsVideo(sourceUrl = DEFAULT_HLS_SOURCE): Promise<P
       { fromOffline: true, expiresAt: offline.expiresAt }
     )
   }
+
+  console.log('[hls-offline] no offline package — loading online source')
 
   try {
     const remote = await resolveRemotePlaylist(sourceUrl)
