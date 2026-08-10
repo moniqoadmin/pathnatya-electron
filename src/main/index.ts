@@ -29,6 +29,7 @@ import {
   startScreenCaptureWatch,
   stopScreenCaptureWatch
 } from './capture-guard'
+import { minimizeOtherApps } from './minimize-others'
 
 const isDev = !app.isPackaged
 
@@ -237,6 +238,11 @@ function createWindow(): void {
   mainWindow.on('blur', notifyAway)
   mainWindow.on('minimize', notifyAway)
   mainWindow.on('hide', notifyAway)
+
+  // When Pathnatya is focused, tuck other apps away so only this window stays in view.
+  mainWindow.on('focus', () => {
+    minimizeOtherApps()
+  })
 
   if (!isDev) {
     mainWindow.webContents.on('devtools-opened', () => {
