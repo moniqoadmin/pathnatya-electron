@@ -2,8 +2,13 @@ import { resolve } from 'path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
+const buildFlags = {
+  __PATHNATYA_WINDOWED__: JSON.stringify(process.env.PATHNATYA_WINDOWED === '1')
+}
+
 export default defineConfig({
   main: {
+    define: buildFlags,
     plugins: [externalizeDepsPlugin()],
     build: {
       minify: 'esbuild',
@@ -23,6 +28,7 @@ export default defineConfig({
     }
   },
   renderer: {
+    define: buildFlags,
     resolve: {
       alias: {
         '@renderer': resolve('src/renderer/src')

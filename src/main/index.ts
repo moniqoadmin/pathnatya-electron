@@ -32,6 +32,12 @@ import {
 import { minimizeOtherApps } from './minimize-others'
 
 const isDev = !app.isPackaged
+const isWindowedBuild = __PATHNATYA_WINDOWED__
+
+/** The windowed build opens compact; the standard build fills a desktop-sized frame. */
+const WINDOW_BOUNDS = isWindowedBuild
+  ? { width: 720, height: 480, minWidth: 480, minHeight: 360 }
+  : { width: 1100, height: 720, minWidth: 900, minHeight: 600 }
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -228,10 +234,10 @@ function registerResetShortcut(mainWindow: BrowserWindow): void {
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
-    width: 1100,
-    height: 720,
-    minWidth: 900,
-    minHeight: 600,
+    width: WINDOW_BOUNDS.width,
+    height: WINDOW_BOUNDS.height,
+    minWidth: WINDOW_BOUNDS.minWidth,
+    minHeight: WINDOW_BOUNDS.minHeight,
     show: false,
     autoHideMenuBar: true,
     title: 'Pathnatya 2026',
@@ -285,9 +291,12 @@ function createWindow(): void {
   mainWindow.on('hide', notifyAway)
 
   // When Pathnatya is focused, tuck other apps away so only this window stays in view.
-  mainWindow.on('focus', () => {
-    minimizeOtherApps(() => !mainWindow.isDestroyed() && mainWindow.isFocused())
-  })
+  // Skipped in the windowed build, where sharing the desktop with other apps is the point.
+  if (!isWindowedBuild) {
+    mainWindow.on('focus', () => {
+      minimizeOtherApps(() => !mainWindow.isDestroyed() && mainWindow.isFocused())
+    })
+  }
 
   if (!isDev) {
     mainWindow.webContents.on('devtools-opened', () => {
