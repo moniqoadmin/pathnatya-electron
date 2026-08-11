@@ -63,7 +63,9 @@ export default function LoginPage({
       const result = await login(trimmed, password, deviceId)
       const account: Account = {
         ...result.account,
-        isOffline: result.isOffline ?? result.account.isOffline
+        isOffline: result.isOffline ?? result.account.isOffline,
+        chokidar: result.chokidar ?? result.account.chokidar,
+        dom_security: result.dom_security ?? result.account.dom_security
       }
       saveSession(result.token, account)
 

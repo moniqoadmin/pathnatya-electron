@@ -15,6 +15,7 @@ import {
 } from './hls-service'
 import { clearHlsKey, setHlsKey } from './hls-key'
 import { purgeExpiredOfflineVideo } from './hls-offline'
+import { getSystemMacAddress } from './device-mac'
 import { getRuntimeValueA, getRuntimeValueB } from './runtime-values'
 import {
   clearOfflineSession,
@@ -29,9 +30,35 @@ import {
   startScreenCaptureWatch,
   stopScreenCaptureWatch
 } from './capture-guard'
+import { detectVirtualMachine, getVirtualMachineVerdict } from './vm-guard'
 import { minimizeOtherApps } from './minimize-others'
+import { createTray, destroyTray, hideWindowToTray, revealWindow } from './tray'
+import { startDriveScanLoop, stopDriveScanLoop } from './drive-scanner'
 
 const isDev = !app.isPackaged
+
+// The app keeps running in the tray after its window is closed, so a second launch
+// must hand focus back to the existing instance instead of starting a new one.
+// Skipped in dev: electron-vite restarts the main process on every edit, and the
+// outgoing process can still hold the lock, which would silently kill the new one.
+const hasInstanceLock = isDev || app.requestSingleInstanceLock()
+
+if (!hasInstanceLock) {
+  app.quit()
+}
+
+let isQuitting = false
+
+app.on('before-quit', () => {
+  isQuitting = true
+})
+
+app.on('second-instance', () => {
+  const [existingWindow] = BrowserWindow.getAllWindows()
+  if (existingWindow) {
+    revealWindow(existingWindow)
+  }
+})
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -47,69 +74,12 @@ protocol.registerSchemesAsPrivileged([
   }
 ])
 
-const ZERO_MAC = '00:00:00:00:00:00'
-const VIRTUAL_IFACE_RE =
-  /^(lo|loopback|awdl|llw|utun|bridge|vmenet|vmnet|vboxnet|docker|veth|br-|ap|p2p|bluetooth)/i
-
 const execFileAsync = promisify(execFile)
 
 type DeviceIdentifier = { id: string; type: 'mac' | 'ip' | 'uuid' | '' }
 
 function isIpv4Family(family: string | number): boolean {
   return family === 'IPv4' || family === 4 || String(family) === '4'
-}
-
-function isUsableMac(mac: string | undefined): boolean {
-  return Boolean(mac && mac !== ZERO_MAC)
-}
-
-/** Prefer real Wi‑Fi/Ethernet adapters; deprioritize VPN/virtual (esp. important on macOS). */
-function interfaceScore(name: string): number {
-  if (VIRTUAL_IFACE_RE.test(name)) {
-    return 0
-  }
-
-  if (/^en\d+$/i.test(name)) {
-    return 100
-  }
-
-  if (/^eth\d+$/i.test(name) || /^wlan\d+$/i.test(name)) {
-    return 95
-  }
-
-  if (/wi-?fi|wireless|ethernet|local area connection/i.test(name)) {
-    return 90
-  }
-
-  return 40
-}
-
-function getSystemMacAddress(): string {
-  const interfaces = os.networkInterfaces()
-  const candidates: Array<{ mac: string; score: number }> = []
-
-  for (const [name, nets] of Object.entries(interfaces)) {
-    if (!nets) {
-      continue
-    }
-
-    const baseScore = interfaceScore(name)
-    if (baseScore === 0) {
-      continue
-    }
-
-    for (const net of nets) {
-      if (net.internal || !isUsableMac(net.mac)) {
-        continue
-      }
-
-      const score = baseScore + (isIpv4Family(net.family) ? 10 : 0)
-      candidates.push({ mac: net.mac.toUpperCase(), score })
-    }
-  }
-
-  candidates.sort((a, b) => b.score - a.score)
-  return candidates[0]?.mac ?? ''
 }
 
 function getSystemIpAddress(): string {
@@ -121,9 +91,22 @@ function getSystemIpAddress(): string {
       continue
     }
 
-    const baseScore = interfaceScore(name)
-    if (baseScore === 0) {
+    // Skip obvious virtual adapters; MAC scoring lives in device-mac.ts.
+    if (
+      /^(lo|loopback|awdl|llw|utun|bridge|vmenet|vmnet|vboxnet|docker|veth|br-|ap|p2p|bluetooth)/i.test(
+        name
+      )
+    ) {
       continue
+    }
+
+    let score = 40
+    if (/^en\d+$/i.test(name)) {
+      score = 100
+    } else if (/^eth\d+$/i.test(name) || /^wlan\d+$/i.test(name)) {
+      score = 95
+    } else if (/wi-?fi|wireless|ethernet|local area connection/i.test(name)) {
+      score = 90
     }
 
     for (const net of nets) {
@@ -131,7 +114,7 @@ function getSystemIpAddress(): string {
         continue
       }
 
-      candidates.push({ address: net.address, score: baseScore })
+      candidates.push({ address: net.address, score })
     }
   }
 
@@ -172,6 +155,24 @@ async function getDeviceIdentifier(): Promise<DeviceIdentifier> {
   return { id: 'macAddress', type: 'mac' }
 }
 
+/**
+ * Reason to refuse video work, or null on physical hardware. Content protection and
+ * recorder detection both live inside the guest, while the host records the guest
+ * display from outside it, so a VM never gets a decrypted segment at all — pausing
+ * the player alone would leave the plaintext sitting in the guest.
+ */
+function videoBlockedReason(): string | null {
+  const vm = getVirtualMachineVerdict()
+  if (!vm.virtual) {
+    return null
+  }
+
+  return (
+    `Video playback is blocked because ${vm.vendor} was detected. ` +
+    'Run Pathnatya on a physical Windows or macOS laptop.'
+  )
+}
+
 function interruptSession(mainWindow: BrowserWindow): void {
   clearPreparedHls()
   clearHlsKey()
@@ -181,11 +182,57 @@ function interruptSession(mainWindow: BrowserWindow): void {
   }
 }
 
-function registerResetShortcut(mainWindow: BrowserWindow): void {
+function notifyAppLog(
+  mainWindow: BrowserWindow,
+  event: 'DEVTOOLS_SHORTCUT' | 'DEVTOOLS_OPENED',
+  tampered: boolean
+): void {
+  if (!mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('app-log', { event, tampered })
+  }
+}
+
+function isDevToolsShortcut(input: Electron.Input): boolean {
+  if (input.type !== 'keyDown' || input.isAutoRepeat) {
+    return false
+  }
+
+  const key = input.key.toLowerCase()
+  if (key === 'f12') {
+    return true
+  }
+
+  const inspectorKey = key === 'i' || key === 'j' || key === 'c'
+  if (!inspectorKey) {
+    return false
+  }
+
+  // Windows / Linux: Ctrl+Shift+I/J/C
+  if (input.control && input.shift && !input.alt && !input.meta) {
+    return true
+  }
+
+  // macOS: Cmd+Option+I/J/C
+  if (input.meta && input.alt && !input.control) {
+    return true
+  }
+
+  return false
+}
+
+function registerInputGuards(mainWindow: BrowserWindow): void {
   let resetInProgress = false
   let resetChordArmed = false
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (isDevToolsShortcut(input)) {
+      if (!isDev) {
+        event.preventDefault()
+        notifyAppLog(mainWindow, 'DEVTOOLS_SHORTCUT', true)
+      }
+      return
+    }
+
     const key = input.key.toLowerCase()
     const hasModifiers = input.control && input.shift && input.alt
 
@@ -291,19 +338,36 @@ function createWindow(): void {
 
   if (!isDev) {
     mainWindow.webContents.on('devtools-opened', () => {
+      notifyAppLog(mainWindow, 'DEVTOOLS_OPENED', true)
       mainWindow.webContents.closeDevTools()
     })
   }
 
+  createTray(mainWindow)
+
+  // Closing the window parks the app in the tray; only an explicit quit tears it down.
+  mainWindow.on('close', (event) => {
+    if (isQuitting) {
+      return
+    }
+
+    event.preventDefault()
+    hideWindowToTray(mainWindow)
+  })
+
   startScreenCaptureWatch(mainWindow)
-  mainWindow.on('closed', stopScreenCaptureWatch)
+  mainWindow.on('closed', () => {
+    stopScreenCaptureWatch()
+    stopDriveScanLoop()
+    destroyTray()
+  })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
-  registerResetShortcut(mainWindow)
+  registerInputGuards(mainWindow)
 
   if (isDev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
@@ -313,8 +377,17 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  if (!hasInstanceLock) {
+    return
+  }
+
   protocol.handle('pathnatya', async (request) => {
     const url = new URL(request.url)
+
+    const blocked = videoBlockedReason()
+    if (blocked) {
+      return new Response(blocked, { status: 403 })
+    }
 
     if (url.hostname === 'hls') {
       if (url.pathname === '/playlist.m3u8') {
@@ -372,6 +445,21 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('get-screen-capture-state', () => getScreenCaptureState())
 
+  ipcMain.handle('get-vm-state', () => getVirtualMachineVerdict())
+
+  // Drive streaming scan — started only when login returns chokidar: true.
+  ipcMain.handle('set-drive-scan-enabled', (event, enabled: boolean) => {
+    if (!enabled) {
+      stopDriveScanLoop()
+      return
+    }
+
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (window && !window.isDestroyed()) {
+      startDriveScanLoop(window)
+    }
+  })
+
   // Nothing in the app captures a screen, so refuse every getDisplayMedia request.
   session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
     callback({})
@@ -381,6 +469,8 @@ app.whenReady().then(async () => {
     callback(permission === 'fullscreen')
   })
 
+  // Not VM-guarded: login must still complete so the VM_DETECTED log reaches the
+  // server. The key is inert here anyway — nothing below will decrypt a segment.
   ipcMain.handle('set-video-key', (_event, token: string) => {
     setHlsKey(String(token ?? ''))
   })
@@ -390,6 +480,11 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('prepare-hls-video', async (_event, sourceUrl?: string) => {
+    const blocked = videoBlockedReason()
+    if (blocked) {
+      throw new Error(blocked)
+    }
+
     return prepareHlsVideo(sourceUrl?.trim() || undefined)
   })
 
@@ -402,6 +497,11 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('download-hls-video', async (event, sourceUrl?: string) => {
+    const blocked = videoBlockedReason()
+    if (blocked) {
+      throw new Error(blocked)
+    }
+
     return downloadHlsVideoForOffline((progress) => {
       if (!event.sender.isDestroyed()) {
         event.sender.send('hls-download-progress', progress)
@@ -443,6 +543,14 @@ app.whenReady().then(async () => {
     return
   }
 
+  // Resolved before the first window so no video request can race the verdict.
+  // The app still runs on a VM (login, offline reset, support) — only video is denied.
+  const vm = await detectVirtualMachine()
+  if (vm.virtual) {
+    console.warn(`[vm-guard] ${vm.vendor} detected — video playback is blocked`)
+    await deleteOfflineVideo()
+  }
+
   console.log('runtime value A:', getRuntimeValueA())
   console.log('runtime value B:', getRuntimeValueB())
 
@@ -451,13 +559,20 @@ app.whenReady().then(async () => {
   createWindow()
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    const [existingWindow] = BrowserWindow.getAllWindows()
+    if (existingWindow) {
+      revealWindow(existingWindow)
+    } else {
+      createWindow()
+    }
   })
 })
 
+// Only reached on an explicit quit, since closing the window hides it to the tray.
 app.on('window-all-closed', () => {
   clearPreparedHls()
   clearHlsKey()
+  destroyTray()
 
   if (process.platform !== 'darwin') {
     app.quit()

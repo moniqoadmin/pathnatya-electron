@@ -28,6 +28,8 @@ export interface OfflineAccount {
   createdAt: string
   updatedAt: string
   isOffline?: boolean
+  chokidar?: boolean
+  dom_security?: boolean
 }
 
 export interface OfflineSessionPayload {

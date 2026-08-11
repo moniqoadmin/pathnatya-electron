@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import type Hls from 'hls.js'
 import type { Account } from '../api/accounts'
+import { reportAppLog } from '../api/logs'
 import OfflineToast from '../components/OfflineToast'
 import {
   IconFullscreen,
@@ -24,7 +25,8 @@ import {
 } from '../lib/hls-loader'
 import { isLowDownloadSpeed, isOffline } from '../lib/network'
 import { readStoredVolume, writeStoredVolume } from '../lib/player-prefs'
-import { clearAllStorage, clearSession } from '../lib/storage'
+import { watchVideoPlayerDom } from '../lib/dom-integrity'
+import { clearAllStorage, clearSession, getWatermarkPhoneNumber } from '../lib/storage'
 import { drawWatermarkedFrame, formatTime } from '../lib/video-frame'
 
 interface VideoLoaderPageProps {
@@ -43,6 +45,7 @@ const VIDEO_SCENES: Array<{ scene: number; label: string; time: number }> = [
 ]
 
 const BANDWIDTH_POLL_MS = 5000
+const WATERMARK_REFRESH_MS = 2000
 
 export default function VideoLoaderPage({
   account,
@@ -52,11 +55,18 @@ export default function VideoLoaderPage({
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const videoContainerRef = useRef<HTMLDivElement>(null)
+  const videoPlayerRef = useRef<HTMLDivElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   const volumeRef = useRef(readStoredVolume())
   const lastAudibleVolumeRef = useRef(volumeRef.current > 0 ? volumeRef.current : 1)
   const fullscreenEnteredAtRef = useRef(0)
   const captureActiveRef = useRef(false)
+  const captureWasActiveRef = useRef<boolean | null>(null)
+  const vmReportedRef = useRef(false)
+  const playbackReadyRef = useRef(false)
+  const watermarkTextRef = useRef(
+    getWatermarkPhoneNumber() || String(account.phoneNumber ?? '')
+  )
 
   const [reloadToken, setReloadToken] = useState(0)
   const [playbackReady, setPlaybackReady] = useState(false)
@@ -72,15 +82,15 @@ export default function VideoLoaderPage({
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [captureActive, setCaptureActive] = useState(false)
   const [captureApp, setCaptureApp] = useState('')
+  const [captureReason, setCaptureReason] = useState<'' | 'recorder' | 'virtual-machine'>('')
 
-  const watermarkText = account.phoneNumber
   const showLowNetworkSpeed = isLowDownloadSpeed(networkMbps) && !fromOffline
 
   const drawFrame = useEffectEvent(() => {
     const video = videoRef.current
     const canvas = canvasRef.current
     if (video && canvas) {
-      drawWatermarkedFrame(video, canvas, watermarkText)
+      drawWatermarkedFrame(video, canvas, watermarkTextRef.current)
     }
   })
 
@@ -239,13 +249,40 @@ export default function VideoLoaderPage({
     }
   }, [])
 
-  // A screen recorder / remote-control app running means the frame could leave this
-  // machine, so playback stops and the fullscreen gate takes over until it is closed.
+  // A screen recorder / remote-control app running, or a virtual machine hosting this
+  // window, means the frame could leave this machine, so playback stops and the
+  // fullscreen gate takes over. A recorder can be closed; a VM verdict never clears.
   useEffect(() => {
-    const applyCaptureState = (state: { active: boolean; appName: string }): void => {
+    const applyCaptureState = (state: {
+      active: boolean
+      appName: string
+      reason: '' | 'recorder' | 'virtual-machine'
+    }): void => {
       captureActiveRef.current = state.active
       setCaptureActive(state.active)
       setCaptureApp(state.appName)
+      setCaptureReason(state.reason)
+
+      if (state.reason === 'virtual-machine') {
+        if (!vmReportedRef.current) {
+          vmReportedRef.current = true
+          reportAppLog('VM_DETECTED', true)
+        }
+      } else {
+        const previous = captureWasActiveRef.current
+        if (previous === null) {
+          captureWasActiveRef.current = state.active
+          if (state.active) {
+            reportAppLog('SCREEN_CAPTURE_STARTED', true)
+          }
+        } else if (previous !== state.active) {
+          captureWasActiveRef.current = state.active
+          reportAppLog(
+            state.active ? 'SCREEN_CAPTURE_STARTED' : 'SCREEN_CAPTURE_CLEARED',
+            state.active
+          )
+        }
+      }
 
       if (state.active) {
         enforceFullscreenGate()
@@ -268,11 +305,31 @@ export default function VideoLoaderPage({
     }
   }, [])
 
+  // Report unexpected edits inside the video-player subtree (injections / media removal).
+  useEffect(() => {
+    if (!account.dom_security) {
+      return
+    }
+
+    const root = videoPlayerRef.current
+    if (!root) {
+      return
+    }
+
+    return watchVideoPlayerDom(root, {
+      isCanvasExpected: () => playbackReadyRef.current,
+      onTampered: () => {
+        reportAppLog('DOM_CHANGED', true)
+      }
+    })
+  }, [account.dom_security])
+
   // Resolve the playlist in main, then hand the decrypted stream to hls.js.
   useEffect(() => {
     let cancelled = false
 
     async function loadVideo(): Promise<void> {
+      playbackReadyRef.current = false
       setPlaybackReady(false)
       setVideoLoading(true)
       setVideoError('')
@@ -315,6 +372,7 @@ export default function VideoLoaderPage({
           }
         })
 
+        playbackReadyRef.current = true
         setPlaybackReady(true)
       } catch (error) {
         if (cancelled) {
@@ -423,6 +481,27 @@ export default function VideoLoaderPage({
       window.cancelAnimationFrame(frameId)
     }
   }, [playbackReady, isFullscreen])
+
+  // Silently re-assert the login-time phone snapshot so in-memory edits do not stick.
+  useEffect(() => {
+    if (!playbackReady) {
+      return
+    }
+
+    const refreshWatermark = (): void => {
+      const phone = getWatermarkPhoneNumber()
+      if (phone) {
+        watermarkTextRef.current = phone
+      }
+    }
+
+    refreshWatermark()
+    const intervalId = window.setInterval(refreshWatermark, WATERMARK_REFRESH_MS)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [playbackReady])
 
   // hls.js already measures throughput, so no extra probe request is needed.
   useEffect(() => {
@@ -614,12 +693,13 @@ export default function VideoLoaderPage({
           )}
         </div>
 
-        <div className="video-player">
+        <div ref={videoPlayerRef} className="video-player">
           {videoLoading && <p className="video-status">Loading video...</p>}
           {buffering && !videoLoading && !videoError && (
             <p className="video-status video-status-seek">Loading...</p>
           )}
-          {videoError && <p className="form-error video-status">{videoError}</p>}
+          {/* While blocked, the gate below carries the explanation instead. */}
+          {videoError && !captureActive && <p className="form-error video-status">{videoError}</p>}
 
           <video
             ref={videoRef}
@@ -725,12 +805,21 @@ export default function VideoLoaderPage({
             </>
           )}
 
-          {!isFullscreen && !videoLoading && !videoError && (
+          {!isFullscreen && !videoLoading && (!videoError || captureActive) && (
             <div className="video-fullscreen-gate" role="alertdialog" aria-live="polite">
               <span className="video-fullscreen-gate-lock" aria-hidden="true">
                 <IconLock />
               </span>
-              {captureActive ? (
+              {captureReason === 'virtual-machine' ? (
+                <>
+                  <p className="video-fullscreen-gate-text">Virtual machine detected</p>
+                  <p className="video-capture-app">Detected: {captureApp || 'a virtual machine'}</p>
+                  <p className="video-fullscreen-gate-hint">
+                    The video cannot be played inside a virtual machine, because the host can
+                    record the screen. Open Pathnatya on a physical Windows or macOS laptop.
+                  </p>
+                </>
+              ) : captureActive ? (
                 <>
                   <p className="video-fullscreen-gate-text">
                     Screen recording or sharing detected

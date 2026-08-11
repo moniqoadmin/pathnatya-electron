@@ -16,6 +16,19 @@ export type HlsOfflineStatus = {
 export type ScreenCaptureState = {
   active: boolean
   appName: string
+  reason: '' | 'recorder' | 'virtual-machine'
+}
+
+export type VmState = {
+  virtual: boolean
+  vendor: string
+}
+
+export type ScanLogEntry = {
+  level: 'info' | 'found' | 'progress' | 'summary' | 'error'
+  message: string
+  engine: 'streaming' | null
+  time: number
 }
 
 const API = {
@@ -99,8 +112,11 @@ const API = {
       ipcRenderer.removeListener('window-blur', handler)
     }
   },
+  setDriveScanEnabled: (enabled: boolean) =>
+    ipcRenderer.invoke('set-drive-scan-enabled', enabled) as Promise<void>,
   getScreenCaptureState: () =>
     ipcRenderer.invoke('get-screen-capture-state') as Promise<ScreenCaptureState>,
+  getVmState: () => ipcRenderer.invoke('get-vm-state') as Promise<VmState>,
   onScreenCaptureChanged: (callback: (state: ScreenCaptureState) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, state: ScreenCaptureState): void => {
       callback(state)
@@ -109,6 +125,31 @@ const API = {
     ipcRenderer.on('screen-capture-changed', handler)
     return () => {
       ipcRenderer.removeListener('screen-capture-changed', handler)
+    }
+  },
+  onAppLog: (
+    callback: (payload: { event: string; tampered: boolean; threat?: boolean }) => void
+  ) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      payload: { event: string; tampered: boolean; threat?: boolean }
+    ): void => {
+      callback(payload)
+    }
+
+    ipcRenderer.on('app-log', handler)
+    return () => {
+      ipcRenderer.removeListener('app-log', handler)
+    }
+  },
+  onScanLog: (callback: (entry: ScanLogEntry) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, entry: ScanLogEntry): void => {
+      callback(entry)
+    }
+
+    ipcRenderer.on('scan-log', handler)
+    return () => {
+      ipcRenderer.removeListener('scan-log', handler)
     }
   }
 }

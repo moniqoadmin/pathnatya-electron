@@ -8,6 +8,8 @@ const LEGACY_LOGIN_TOKENS_KEY = 'pathnatya_login_tokens'
 
 let sessionToken: string | null = null
 let sessionAccount: Account | null = null
+/** Primitive snapshot — not tied to the mutable account object used by React. */
+let watermarkPhoneNumber: string | null = null
 let loginTokens: string[] | null = null
 
 function purgeLegacyStorage(): void {
@@ -19,6 +21,7 @@ function purgeLegacyStorage(): void {
 export function saveSession(token: string, account: Account): void {
   sessionToken = token
   sessionAccount = account
+  watermarkPhoneNumber = String(account.phoneNumber ?? '')
   purgeLegacyStorage()
 }
 
@@ -39,9 +42,15 @@ export function getSession(): { token: string; account: Account } | null {
   return { token: sessionToken, account: sessionAccount }
 }
 
+/** Phone number frozen at login for watermarking; immune to account object edits. */
+export function getWatermarkPhoneNumber(): string | null {
+  return watermarkPhoneNumber
+}
+
 export function clearSession(): void {
   sessionToken = null
   sessionAccount = null
+  watermarkPhoneNumber = null
   loginTokens = null
   clearVideoKey()
   purgeLegacyStorage()

@@ -7,6 +7,7 @@
   "license": "UNLICENSED",
   "private": true,
   "scripts": {
+    "start": "electron-vite dev --outDir=dist",
     "dev": "electron-vite dev --outDir=dist",
     "build": "electron-vite build --outDir=dist",
     "protect": "node scripts/protect.js",
@@ -19,10 +20,12 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "chokidar": "^5.0.0",
     "hls.js": "^1.6.17",
     "jose": "^6.2.3",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "readdirp": "^5.1.1"
   },
   "devDependencies": {
     "@electron/fuses": "^1.8.0",

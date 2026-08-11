@@ -4,7 +4,8 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    // readdirp is ESM-only, so bundle it into the CJS main output.
+    plugins: [externalizeDepsPlugin({ exclude: ['readdirp'] })],
     build: {
       minify: 'esbuild',
       sourcemap: false,

@@ -4,6 +4,7 @@ import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 let userDataDir = ''
+let bindingMac = 'AA:BB:CC:DD:EE:FF'
 
 vi.mock('electron', () => ({
   app: {
@@ -14,6 +15,11 @@ vi.mock('electron', () => ({
     encryptString: (value: string) => Buffer.from(value, 'utf8'),
     decryptString: (payload: Buffer) => payload.toString('utf8')
   }
+}))
+
+vi.mock('./device-mac', () => ({
+  getOfflineBindingMac: () => bindingMac,
+  getSystemMacAddress: () => bindingMac
 }))
 
 const {
@@ -37,6 +43,7 @@ const {
 
 describe('hls-offline-crypto', () => {
   beforeEach(async () => {
+    bindingMac = 'AA:BB:CC:DD:EE:FF'
     userDataDir = await mkdtemp(join(tmpdir(), 'pathnatya-offline-'))
   })
 
@@ -64,6 +71,12 @@ describe('hls-offline-crypto', () => {
   it('rejects tampered ciphertext', async () => {
     const sealed = await encryptAtRest(Buffer.from('video'))
     sealed[sealed.length - 5] ^= 0xff
+    await expect(decryptAtRest(sealed)).rejects.toThrow()
+  })
+
+  it('fails decrypt when the bound MAC changes', async () => {
+    const sealed = await encryptAtRest(Buffer.from('mac-bound-video'))
+    bindingMac = '11:22:33:44:55:66'
     await expect(decryptAtRest(sealed)).rejects.toThrow()
   })
 })
