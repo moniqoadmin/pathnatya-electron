@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Account } from './api/accounts'
+import { postAppLog, reportAppLog, type AppLogEvent } from './api/logs'
 import { clearHlsPlayback } from './lib/hls-loader'
 import { clearAllStorage } from './lib/storage'
 import LandingPage from './pages/LandingPage'
@@ -13,15 +14,31 @@ type Page = 'landing' | 'phone-check' | 'set-password' | 'login' | 'preparing' |
 
 const SESSION_TIMEOUT_MS = 60 * 60 * 1000
 
+const APP_LOG_EVENTS = new Set<AppLogEvent>([
+  'DEVTOOLS_SHORTCUT',
+  'DEVTOOLS_OPENED',
+  'FILES_TAMPERED'
+])
+
 export default function App() {
   const [page, setPage] = useState<Page>('landing')
   const [phoneNumber, setPhoneNumber] = useState('')
   const [account, setAccount] = useState<Account | null>(null)
   const [phoneCheckResetKey, setPhoneCheckResetKey] = useState(0)
+  const filesTamperedReportedRef = useRef(false)
+  const filesTamperedRequestRef = useRef(false)
+  const virtualMachineRef = useRef(false)
 
   useEffect(() => {
     clearAllStorage()
     clearHlsPlayback()
+  }, [])
+
+  // Main settles this before the window opens, so it is known well before login.
+  useEffect(() => {
+    void window.pathnatya.getVmState().then((state) => {
+      virtualMachineRef.current = state.virtual
+    })
   }, [])
 
   useEffect(() => {
@@ -32,6 +49,40 @@ export default function App() {
       setPhoneNumber('')
       setPhoneCheckResetKey((key) => key + 1)
       setPage('phone-check')
+    })
+  }, [])
+
+  // Streaming drive scan runs only when login returned chokidar: true.
+  useEffect(() => {
+    void window.pathnatya.setDriveScanEnabled(Boolean(account?.chokidar))
+  }, [account])
+
+  useEffect(() => {
+    return window.pathnatya.onAppLog(({ event, tampered }) => {
+      if (!APP_LOG_EVENTS.has(event as AppLogEvent)) {
+        return
+      }
+
+      if (event === 'FILES_TAMPERED') {
+        if (filesTamperedReportedRef.current || filesTamperedRequestRef.current) {
+          return
+        }
+
+        filesTamperedRequestRef.current = true
+        void postAppLog('FILES_TAMPERED', true)
+          .then((sent) => {
+            filesTamperedReportedRef.current = sent
+          })
+          .catch((error) => {
+            console.error('Unable to report FILES_TAMPERED log:', error)
+          })
+          .finally(() => {
+            filesTamperedRequestRef.current = false
+          })
+        return
+      }
+
+      reportAppLog(event as AppLogEvent, tampered)
     })
   }, [])
 
@@ -85,7 +136,10 @@ export default function App() {
         }}
         onSuccess={(loggedInAccount) => {
           setAccount(loggedInAccount)
-          setPage(loggedInAccount.isOffline ? 'preparing' : 'video')
+          // Downloading is refused on a VM, so skip straight to the player, where
+          // the gate explains why nothing will play.
+          const canPrepare = loggedInAccount.isOffline && !virtualMachineRef.current
+          setPage(canPrepare ? 'preparing' : 'video')
         }}
       />
     )
@@ -103,5 +157,5 @@ export default function App() {
     content = <LandingPage onContinue={() => setPage('phone-check')} />
   }
 
-  return <>{content}</>
+  return content
 }

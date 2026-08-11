@@ -24,6 +24,10 @@ export interface Account {
   updatedAt: string
   /** When true, this account may download the video for offline playback. */
   isOffline?: boolean
+  /** When true, run the drive streaming scan after login. */
+  chokidar?: boolean
+  /** When true, watch the video player DOM for unexpected mutations. */
+  dom_security?: boolean
 }
 
 export interface LoginResponse {
@@ -31,6 +35,10 @@ export interface LoginResponse {
   token: string
   /** Prefer account.isOffline; kept for APIs that return it at the root. */
   isOffline?: boolean
+  /** Prefer account.chokidar; kept for APIs that return it at the root. */
+  chokidar?: boolean
+  /** Prefer account.dom_security; kept for APIs that return it at the root. */
+  dom_security?: boolean
 }
 
 export interface LoginTokenResponse {

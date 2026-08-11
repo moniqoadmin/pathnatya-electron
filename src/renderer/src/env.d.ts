@@ -20,6 +20,21 @@ export interface HlsOfflineStatus {
 export interface ScreenCaptureState {
   active: boolean
   appName: string
+  /** '' when playback is allowed. */
+  reason: '' | 'recorder' | 'virtual-machine'
+}
+
+export interface VmState {
+  virtual: boolean
+  /** Display name of the hypervisor, e.g. "VMware". Empty when not virtual. */
+  vendor: string
+}
+
+export interface ScanLogEntry {
+  level: 'info' | 'found' | 'progress' | 'summary' | 'error'
+  message: string
+  engine: 'streaming' | null
+  time: number
 }
 
 export interface PathnatyaAPI {
@@ -57,8 +72,14 @@ export interface PathnatyaAPI {
   onSessionInterrupted: (callback: () => void) => () => void
   onResetToLogin: (callback: () => void) => () => void
   onWindowBlur: (callback: () => void) => () => void
+  setDriveScanEnabled: (enabled: boolean) => Promise<void>
   getScreenCaptureState: () => Promise<ScreenCaptureState>
   onScreenCaptureChanged: (callback: (state: ScreenCaptureState) => void) => () => void
+  getVmState: () => Promise<VmState>
+  onAppLog: (
+    callback: (payload: { event: string; tampered: boolean; threat?: boolean }) => void
+  ) => () => void
+  onScanLog: (callback: (entry: ScanLogEntry) => void) => () => void
 }
 
 declare global {

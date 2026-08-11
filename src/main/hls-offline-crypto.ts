@@ -2,10 +2,12 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypt
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { app, safeStorage } from 'electron'
+import { getOfflineBindingMac } from './device-mac'
 
 /** Magic: PathNatya Offline Format */
 export const OFFLINE_AT_REST_MAGIC = Buffer.from('PNOF')
-export const OFFLINE_AT_REST_VERSION = 1
+/** v2: package key is bound to the machine MAC (Windows + macOS). */
+export const OFFLINE_AT_REST_VERSION = 2
 
 const NONCE_LENGTH = 12
 const AUTH_TAG_LENGTH = 16
@@ -24,14 +26,27 @@ function offlineCryptoLog(message: string, detail?: Record<string, unknown>): vo
 /**
  * Layout on disk:
  *   MAGIC(4) | VERSION(1) | NONCE(12) | CIPHERTEXT | AUTH_TAG(16)
+ *
+ * The MAC address is not written into the sealed blob. It is re-read from the
+ * OS at encrypt/decrypt time and mixed into the AES key so the package only
+ * opens on the same machine.
  */
 function keyFilePath(): string {
   return join(app.getPath('userData'), KEY_FILE)
 }
 
-function fallbackKey(): Buffer {
+/** Mix the live NIC MAC into the raw package key (never persists the MAC itself). */
+function bindKeyToMac(rawKey: Buffer, mac: string): Buffer {
   return createHash('sha256')
-    .update('pathnatya:hls-offline:at-rest:v1')
+    .update(rawKey)
+    .update('|mac|')
+    .update(mac.toUpperCase())
+    .digest()
+}
+
+function fallbackRawKey(): Buffer {
+  return createHash('sha256')
+    .update('pathnatya:hls-offline:at-rest:v2')
     .update(process.platform)
     .digest()
 }
@@ -52,7 +67,7 @@ function unsealKey(payload: Buffer): string {
   return payload.toString('utf8')
 }
 
-async function getOrCreatePackageKey(): Promise<Buffer> {
+async function getOrCreateRawPackageKey(): Promise<Buffer> {
   const path = keyFilePath()
 
   try {
@@ -76,8 +91,14 @@ async function getOrCreatePackageKey(): Promise<Buffer> {
   } catch {
     // Cannot persist (e.g. tests without a writable userData) — deterministic fallback.
     offlineCryptoLog('using fallback at-rest key (could not persist)')
-    return fallbackKey()
+    return fallbackRawKey()
   }
+}
+
+async function getPackageKey(): Promise<{ key: Buffer; mac: string }> {
+  const rawKey = await getOrCreateRawPackageKey()
+  const mac = getOfflineBindingMac()
+  return { key: bindKeyToMac(rawKey, mac), mac }
 }
 
 export function isAtRestPayload(payload: Buffer): boolean {
@@ -89,7 +110,7 @@ export function isAtRestPayload(payload: Buffer): boolean {
 
 /** Encrypt plaintext and prepend the custom at-rest header. */
 export async function encryptAtRest(plaintext: Buffer): Promise<Buffer> {
-  const key = await getOrCreatePackageKey()
+  const { key, mac } = await getPackageKey()
   const nonce = randomBytes(NONCE_LENGTH)
   const cipher = createCipheriv('aes-256-gcm', key, nonce)
   const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()])
@@ -107,7 +128,8 @@ export async function encryptAtRest(plaintext: Buffer): Promise<Buffer> {
     plaintextBytes: plaintext.length,
     sealedBytes: sealed.length,
     magic: OFFLINE_AT_REST_MAGIC.toString('utf8'),
-    version: OFFLINE_AT_REST_VERSION
+    version: OFFLINE_AT_REST_VERSION,
+    macBound: Boolean(mac && mac !== 'macAddress')
   })
 
   return sealed
@@ -116,6 +138,7 @@ export async function encryptAtRest(plaintext: Buffer): Promise<Buffer> {
 /**
  * Strip the custom header and decrypt in memory.
  * Throws if the header is missing/invalid or authentication fails.
+ * Plaintext is never written back to disk — callers keep it in RAM only.
  */
 export async function decryptAtRest(payload: Buffer): Promise<Buffer> {
   if (!isAtRestPayload(payload)) {
@@ -134,7 +157,7 @@ export async function decryptAtRest(payload: Buffer): Promise<Buffer> {
   const tag = payload.subarray(payload.length - AUTH_TAG_LENGTH)
   const ciphertext = payload.subarray(nonceStart + NONCE_LENGTH, payload.length - AUTH_TAG_LENGTH)
 
-  const key = await getOrCreatePackageKey()
+  const { key, mac } = await getPackageKey()
   const decipher = createDecipheriv('aes-256-gcm', key, nonce)
   decipher.setAuthTag(tag)
 
@@ -143,7 +166,8 @@ export async function decryptAtRest(payload: Buffer): Promise<Buffer> {
     sealedBytes: payload.length,
     plaintextBytes: plaintext.length,
     magic: OFFLINE_AT_REST_MAGIC.toString('utf8'),
-    version
+    version,
+    macBound: Boolean(mac && mac !== 'macAddress')
   })
 
   return plaintext

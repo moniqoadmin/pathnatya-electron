@@ -2,13 +2,20 @@ import { execFile } from 'child_process'
 import { basename } from 'path'
 import { promisify } from 'util'
 import type { BrowserWindow } from 'electron'
+import { getVirtualMachineVerdict } from './vm-guard'
 
 const execFileAsync = promisify(execFile)
+
+/** Why playback is blocked, so the renderer can explain it accurately. */
+export type CaptureReason = '' | 'recorder' | 'virtual-machine'
 
 export type ScreenCaptureState = {
   active: boolean
   appName: string
+  reason: CaptureReason
 }
+
+const IDLE_STATE: ScreenCaptureState = { active: false, appName: '', reason: '' }
 
 type CaptureSignature = { name: string; processes: string[] }
 
@@ -158,7 +165,7 @@ const PACKAGE_RESCAN_MS = 5 * 60 * 1000
 type PackagedRecorder = { executable: string; appName: string }
 
 let pollTimeoutId: NodeJS.Timeout | null = null
-let currentState: ScreenCaptureState = { active: false, appName: '' }
+let currentState: ScreenCaptureState = IDLE_STATE
 let packagedRecorders: PackagedRecorder[] = []
 let packageScanAt = 0
 
@@ -414,6 +421,14 @@ export function matchRecorderByKeyword(running: string[]): string | null {
 }
 
 async function detectCapture(): Promise<ScreenCaptureState> {
+  // Inside a VM the host records the guest display directly, where neither content
+  // protection nor any in-guest recorder check can see it. Hardware cannot stop
+  // being virtual, so this verdict latches for the rest of the session.
+  const vm = getVirtualMachineVerdict()
+  if (vm.virtual) {
+    return { active: true, appName: vm.vendor, reason: 'virtual-machine' }
+  }
+
   const running = await listProcessNames()
 
   // A failed process listing must not block playback; keep the previous verdict.
@@ -424,27 +439,27 @@ async function detectCapture(): Promise<ScreenCaptureState> {
   if (process.platform === 'win32') {
     const capturing = await findActiveCaptureConsent(running)
     if (capturing) {
-      return { active: true, appName: capturing }
+      return { active: true, appName: capturing, reason: 'recorder' }
     }
   }
 
   const signatures = process.platform === 'win32' ? WINDOWS_SIGNATURES : MACOS_SIGNATURES
   const detected = signatures.find((signature) => matchesSignature(running, signature))
   if (detected) {
-    return { active: true, appName: detected.name }
+    return { active: true, appName: detected.name, reason: 'recorder' }
   }
 
   const packaged = packagedRecorders.find((entry) => running.includes(entry.executable))
   if (packaged) {
-    return { active: true, appName: packaged.appName }
+    return { active: true, appName: packaged.appName, reason: 'recorder' }
   }
 
   const heuristic = matchRecorderByKeyword(running)
   if (heuristic) {
-    return { active: true, appName: heuristic }
+    return { active: true, appName: heuristic, reason: 'recorder' }
   }
 
-  return { active: false, appName: '' }
+  return IDLE_STATE
 }
 
 /**
@@ -487,5 +502,5 @@ export function stopScreenCaptureWatch(): void {
     pollTimeoutId = null
   }
 
-  currentState = { active: false, appName: '' }
+  currentState = IDLE_STATE
 }
