@@ -17,7 +17,7 @@ export default function App() {
   const [page, setPage] = useState<Page>('landing')
   const [phoneNumber, setPhoneNumber] = useState('')
   const [account, setAccount] = useState<Account | null>(null)
-  const [loginResetKey, setLoginResetKey] = useState(0)
+  const [phoneCheckResetKey, setPhoneCheckResetKey] = useState(0)
 
   useEffect(() => {
     clearAllStorage()
@@ -30,8 +30,8 @@ export default function App() {
       clearAllStorage()
       setAccount(null)
       setPhoneNumber('')
-      setLoginResetKey((key) => key + 1)
-      setPage('login')
+      setPhoneCheckResetKey((key) => key + 1)
+      setPage('phone-check')
     })
   }, [])
 
@@ -52,6 +52,7 @@ export default function App() {
   } else if (page === 'phone-check') {
     content = (
       <PhoneCheckPage
+        key={phoneCheckResetKey}
         onBack={() => setPage('landing')}
         onExistingAccount={(phone) => {
           setPhoneNumber(phone)
@@ -77,7 +78,6 @@ export default function App() {
   } else if (page === 'login') {
     content = (
       <LoginPage
-        key={loginResetKey}
         phoneNumber={phoneNumber}
         onBack={() => {
           setPhoneNumber('')
