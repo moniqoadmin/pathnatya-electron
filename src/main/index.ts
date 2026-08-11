@@ -181,6 +181,51 @@ function interruptSession(mainWindow: BrowserWindow): void {
   }
 }
 
+function registerResetShortcut(mainWindow: BrowserWindow): void {
+  let resetInProgress = false
+  let resetChordArmed = false
+
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    const key = input.key.toLowerCase()
+    const hasModifiers = input.control && input.shift && input.alt
+
+    if (input.type === 'keyUp') {
+      if (key === 'r' || !hasModifiers) {
+        resetChordArmed = false
+      }
+      return
+    }
+
+    if (key === 'r' && hasModifiers) {
+      resetChordArmed = true
+      event.preventDefault()
+      return
+    }
+
+    if (key !== 's' || !hasModifiers || !resetChordArmed || resetInProgress) {
+      return
+    }
+
+    event.preventDefault()
+    resetChordArmed = false
+    resetInProgress = true
+    cancelHlsOfflineDownload()
+    clearPreparedHls()
+    clearHlsKey()
+
+    void Promise.all([deleteOfflineVideo(), clearOfflineSession()])
+      .catch((error) => {
+        console.error('Unable to fully reset local video data:', error)
+      })
+      .finally(() => {
+        resetInProgress = false
+        if (!mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('reset-to-login')
+        }
+      })
+  })
+}
+
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1100,
@@ -241,7 +286,7 @@ function createWindow(): void {
 
   // When Pathnatya is focused, tuck other apps away so only this window stays in view.
   mainWindow.on('focus', () => {
-    minimizeOtherApps()
+    minimizeOtherApps(() => !mainWindow.isDestroyed() && mainWindow.isFocused())
   })
 
   if (!isDev) {
@@ -257,6 +302,8 @@ function createWindow(): void {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
+
+  registerResetShortcut(mainWindow)
 
   if (isDev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])

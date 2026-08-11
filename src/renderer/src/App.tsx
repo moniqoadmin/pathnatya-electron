@@ -17,10 +17,22 @@ export default function App() {
   const [page, setPage] = useState<Page>('landing')
   const [phoneNumber, setPhoneNumber] = useState('')
   const [account, setAccount] = useState<Account | null>(null)
+  const [loginResetKey, setLoginResetKey] = useState(0)
 
   useEffect(() => {
     clearAllStorage()
     clearHlsPlayback()
+  }, [])
+
+  useEffect(() => {
+    return window.pathnatya.onResetToLogin(() => {
+      clearHlsPlayback()
+      clearAllStorage()
+      setAccount(null)
+      setPhoneNumber('')
+      setLoginResetKey((key) => key + 1)
+      setPage('login')
+    })
   }, [])
 
   const handleLogout = useCallback(() => {
@@ -65,6 +77,7 @@ export default function App() {
   } else if (page === 'login') {
     content = (
       <LoginPage
+        key={loginResetKey}
         phoneNumber={phoneNumber}
         onBack={() => {
           setPhoneNumber('')

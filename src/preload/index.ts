@@ -79,6 +79,16 @@ const API = {
       ipcRenderer.removeListener('session-interrupted', handler)
     }
   },
+  onResetToLogin: (callback: () => void) => {
+    const handler = (): void => {
+      callback()
+    }
+
+    ipcRenderer.on('reset-to-login', handler)
+    return () => {
+      ipcRenderer.removeListener('reset-to-login', handler)
+    }
+  },
   onWindowBlur: (callback: () => void) => {
     const handler = (): void => {
       callback()
