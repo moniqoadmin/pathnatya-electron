@@ -25,7 +25,7 @@ export default function OfflineToast() {
 
   return (
     <div className="toast toast-offline" role="status" aria-live="polite">
-      No internet connection
+      4710 : No internet connection
     </div>
   )
 }

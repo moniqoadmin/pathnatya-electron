@@ -87,7 +87,7 @@ export async function enforceDesktopLaptopOnly(): Promise<boolean> {
   if (!isSupportedOs()) {
     dialog.showErrorBox(
       'Unsupported Platform',
-      'Pathnatya runs only on Windows and macOS laptops. Phones, tablets, and other operating systems are not supported.'
+      '734 : Pathnatya runs only on Windows and macOS laptops. Phones, tablets, and other operating systems are not supported.'
     )
     app.exit(1)
     return false
@@ -96,7 +96,7 @@ export async function enforceDesktopLaptopOnly(): Promise<boolean> {
   if (await isBlockedTabletFormFactor()) {
     dialog.showErrorBox(
       'Unsupported Device',
-      'Pathnatya runs only on Windows and macOS laptops. Phones and tablets are not supported.'
+      '2861 : Pathnatya runs only on Windows and macOS laptops. Phones and tablets are not supported.'
     )
     app.exit(1)
     return false
@@ -105,7 +105,7 @@ export async function enforceDesktopLaptopOnly(): Promise<boolean> {
   if (isScreenTooSmall()) {
     dialog.showErrorBox(
       'Screen Too Small',
-      'Pathnatya requires a laptop or desktop screen. Phones and small tablets are not supported.'
+      '952 : Pathnatya requires a laptop or desktop screen. Phones and small tablets are not supported.'
     )
     app.exit(1)
     return false

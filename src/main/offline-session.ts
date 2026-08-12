@@ -120,15 +120,15 @@ async function readStoredSession(): Promise<StoredOfflineSession | null> {
 export async function saveOfflineSession(payload: OfflineSessionPayload): Promise<void> {
   const phoneNumber = payload.phoneNumber.trim()
   if (!/^\d{10}$/.test(phoneNumber)) {
-    throw new Error('Invalid phone number for offline session.')
+    throw new Error('578 : Invalid phone number for offline session.')
   }
 
   if (!payload.password) {
-    throw new Error('Password is required to save an offline session.')
+    throw new Error('9247 : Password is required to save an offline session.')
   }
 
   if (!Array.isArray(payload.loginTokens) || payload.loginTokens.length === 0) {
-    throw new Error('Login tokens are required to save an offline session.')
+    throw new Error('361 : Login tokens are required to save an offline session.')
   }
 
   const salt = randomBytes(16)

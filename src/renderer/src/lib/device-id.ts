@@ -10,7 +10,7 @@ export async function getDeviceId(): Promise<string> {
 
   // Legacy preload fallback (HMR without full restart) — Windows-oriented only.
   if (api.getPlatform?.() === 'darwin') {
-    throw new Error('Device identifier API is unavailable. Restart the app.')
+    throw new Error('1748 : Device identifier API is unavailable. Restart the app.')
   }
 
   if (typeof api.getSystemMacAddress === 'function') {

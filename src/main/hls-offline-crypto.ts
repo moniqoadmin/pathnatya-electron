@@ -143,13 +143,13 @@ export async function encryptAtRest(plaintext: Buffer): Promise<Buffer> {
 export async function decryptAtRest(payload: Buffer): Promise<Buffer> {
   if (!isAtRestPayload(payload)) {
     offlineCryptoLog('decrypt failed: missing at-rest header', { sealedBytes: payload.length })
-    throw new Error('Offline package is missing the expected at-rest header.')
+    throw new Error('891 : Offline package is missing the expected at-rest header.')
   }
 
   const version = payload[OFFLINE_AT_REST_MAGIC.length]
   if (version !== OFFLINE_AT_REST_VERSION) {
     offlineCryptoLog('decrypt failed: unsupported version', { version })
-    throw new Error(`Unsupported offline package version ${version}.`)
+    throw new Error(`4386 : Unsupported offline package version ${version}.`)
   }
 
   const nonceStart = OFFLINE_AT_REST_MAGIC.length + 1

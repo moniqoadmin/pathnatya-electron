@@ -8,6 +8,7 @@ export type AppLogEvent =
   | 'DEVTOOLS_SHORTCUT'
   | 'DEVTOOLS_OPENED'
   | 'FILES_TAMPERED'
+  | 'VIDEO_FILES_CHANGED'
   | 'VM_DETECTED'
 
 export async function postAppLog(event: AppLogEvent, tampered: boolean): Promise<boolean> {

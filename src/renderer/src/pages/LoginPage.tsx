@@ -4,6 +4,7 @@ import { saveLoginTokens, saveSession } from '../lib/storage'
 import { isNetworkError } from '../lib/network'
 import { getDeviceId } from '../lib/device-id'
 import { applyVideoKey } from '../lib/video-key'
+import { userError } from '../lib/user-error'
 import type { Account } from '../api/accounts'
 import PasswordInput from '../components/PasswordInput'
 
@@ -48,12 +49,12 @@ export default function LoginPage({
 
     const trimmed = phoneNumber.trim()
     if (!/^\d{10}$/.test(trimmed)) {
-      setError('Please enter a valid 10-digit phone number.')
+      setError(userError(674, 'Please enter a valid 10-digit phone number.'))
       return
     }
 
     if (!password) {
-      setError('Please enter your password.')
+      setError(userError(219, 'Please enter your password.'))
       return
     }
 
@@ -102,7 +103,10 @@ export default function LoginPage({
         }
 
         setError(
-          'Invalid phone number or password. Offline login is only available within 7 days of a successful online login on this device.'
+          userError(
+            8437,
+            'Invalid phone number or password. Offline login is only available within 7 days of a successful online login on this device.'
+          )
         )
         return
       }
@@ -111,7 +115,19 @@ export default function LoginPage({
         error instanceof Error && error.message.trim()
           ? error.message.trim()
           : 'Invalid phone number or password. Please try again.'
-      setError(message)
+      const status =
+        error && typeof error === 'object' && 'status' in error
+          ? Number((error as { status: unknown }).status)
+          : 0
+      const authenticationRejected =
+        status === 401 ||
+        status === 403 ||
+        /invalid.*(?:password|credentials)|wrong.*password|password.*incorrect/iu.test(message)
+      setError(
+        authenticationRejected
+          ? userError(406, 'Invalid phone number or password.')
+          : userError(917, message)
+      )
     } finally {
       setLoading(false)
     }

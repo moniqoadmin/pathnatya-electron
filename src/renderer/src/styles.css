@@ -781,6 +781,70 @@ body {
   border: 1px solid rgba(254, 202, 202, 0.35);
 }
 
+.tamper-warning {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(2, 6, 23, 0.88);
+}
+
+.tamper-warning-card {
+  width: min(520px, 100%);
+  padding: 28px;
+  border: 1px solid rgba(254, 202, 202, 0.35);
+  border-radius: 14px;
+  background: #0f172a;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+.tamper-warning-title {
+  margin: 0 0 12px;
+  color: #fecaca;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.tamper-warning-text {
+  margin: 0 0 16px;
+  color: #d5deef;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.tamper-warning-paths {
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tamper-warning-path {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(148, 163, 184, 0.12);
+  color: #f1f5f9;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.tamper-warning-countdown {
+  margin: 0;
+  color: #fbbf24;
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 @keyframes toast-in {
   from {
     opacity: 0;

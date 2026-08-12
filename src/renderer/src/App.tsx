@@ -9,10 +9,14 @@ import PhoneCheckPage from './pages/PhoneCheckPage'
 import PreparingVideoPage from './pages/PreparingVideoPage'
 import SetPasswordPage from './pages/SetPasswordPage'
 import VideoLoaderPage from './pages/VideoLoaderPage'
+import TamperWarning from './components/TamperWarning'
 
 type Page = 'landing' | 'phone-check' | 'set-password' | 'login' | 'preparing' | 'video'
 
 const SESSION_TIMEOUT_MS = 60 * 60 * 1000
+
+/** How long the "delete the duplicate copy" warning stays up before the forced logout. */
+const TAMPER_WARNING_SECONDS = 10
 
 const APP_LOG_EVENTS = new Set<AppLogEvent>([
   'DEVTOOLS_SHORTCUT',
@@ -25,6 +29,7 @@ export default function App() {
   const [phoneNumber, setPhoneNumber] = useState('')
   const [account, setAccount] = useState<Account | null>(null)
   const [phoneCheckResetKey, setPhoneCheckResetKey] = useState(0)
+  const [tamperedLocations, setTamperedLocations] = useState<string[] | null>(null)
   const filesTamperedReportedRef = useRef(false)
   const filesTamperedRequestRef = useRef(false)
   const virtualMachineRef = useRef(false)
@@ -57,13 +62,26 @@ export default function App() {
     void window.pathnatya.setDriveScanEnabled(Boolean(account?.chokidar))
   }, [account])
 
+  const forceLogout = useCallback(() => {
+    clearHlsPlayback()
+    clearAllStorage()
+    setAccount(null)
+    setPhoneNumber('')
+    setPage('landing')
+  }, [])
+
   useEffect(() => {
-    return window.pathnatya.onAppLog(({ event, tampered }) => {
+    return window.pathnatya.onAppLog(({ event, tampered, path, paths }) => {
       if (!APP_LOG_EVENTS.has(event as AppLogEvent)) {
         return
       }
 
       if (event === 'FILES_TAMPERED') {
+        // Keeps the first reported pair so a later scan hit cannot restart the countdown.
+        const locations =
+          paths && paths.length > 0 ? paths : path ? [path] : []
+        setTamperedLocations((current) => current ?? locations)
+
         if (filesTamperedReportedRef.current || filesTamperedRequestRef.current) {
           return
         }
@@ -85,6 +103,22 @@ export default function App() {
       reportAppLog(event as AppLogEvent, tampered)
     })
   }, [])
+
+  // The warning names both folder locations, then the session ends whether or not the copy was deleted.
+  useEffect(() => {
+    if (tamperedLocations === null) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setTamperedLocations(null)
+      forceLogout()
+    }, TAMPER_WARNING_SECONDS * 1000)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [tamperedLocations, forceLogout])
 
   const handleLogout = useCallback(() => {
     setAccount(null)
@@ -157,5 +191,12 @@ export default function App() {
     content = <LandingPage onContinue={() => setPage('phone-check')} />
   }
 
-  return content
+  return (
+    <>
+      {content}
+      {tamperedLocations !== null && (
+        <TamperWarning locations={tamperedLocations} seconds={TAMPER_WARNING_SECONDS} />
+      )}
+    </>
+  )
 }

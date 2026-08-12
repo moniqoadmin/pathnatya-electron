@@ -77,7 +77,13 @@ export interface PathnatyaAPI {
   onScreenCaptureChanged: (callback: (state: ScreenCaptureState) => void) => () => void
   getVmState: () => Promise<VmState>
   onAppLog: (
-    callback: (payload: { event: string; tampered: boolean; threat?: boolean }) => void
+    callback: (payload: {
+      event: string
+      tampered: boolean
+      threat?: boolean
+      path?: string
+      paths?: string[]
+    }) => void
   ) => () => void
   onScanLog: (callback: (entry: ScanLogEntry) => void) => () => void
 }

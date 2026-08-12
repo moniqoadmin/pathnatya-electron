@@ -42,7 +42,7 @@ const API = {
   setVideoKey: (token: string) => ipcRenderer.invoke('set-video-key', token) as Promise<void>,
   clearVideoKey: () => ipcRenderer.invoke('clear-video-key') as Promise<void>,
   prepareHlsVideo: (sourceUrl?: string) =>
-    ipcRenderer.invoke('prepare-hls-video', sourceUrl) as Promise<{
+    ipcRenderer.invoke('prepare-video', sourceUrl) as Promise<{
       playlistUrl: string
       totalDurationSeconds: number
       segmentCount: number
@@ -128,11 +128,23 @@ const API = {
     }
   },
   onAppLog: (
-    callback: (payload: { event: string; tampered: boolean; threat?: boolean }) => void
+    callback: (payload: {
+      event: string
+      tampered: boolean
+      threat?: boolean
+      path?: string
+      paths?: string[]
+    }) => void
   ) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
-      payload: { event: string; tampered: boolean; threat?: boolean }
+      payload: {
+        event: string
+        tampered: boolean
+        threat?: boolean
+        path?: string
+        paths?: string[]
+      }
     ): void => {
       callback(payload)
     }

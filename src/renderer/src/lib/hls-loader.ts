@@ -1,4 +1,5 @@
 import Hls, { ErrorTypes, Events, FetchLoader } from 'hls.js'
+import { userError } from './user-error'
 
 export interface PreparedHlsPlayback {
   playlistUrl: string
@@ -6,6 +7,25 @@ export interface PreparedHlsPlayback {
   segmentCount: number
   fromOffline: boolean
   expiresAt: string | null
+}
+
+/** Shown when the offline package cannot be cleaned up because its files were locked/altered. */
+export const VIDEO_FILES_TAMPERED_MESSAGE = userError(
+  573,
+  'Video files tampered. Please contact admin.'
+)
+
+/**
+ * A locked/replaced offline package makes the main process fail to wipe `hls-offline`
+ * (e.g. `EPERM: operation not permitted, rmdir ...hls-offline`). We treat this as tampering.
+ */
+export function isVideoFilesTamperedError(error: unknown): boolean {
+  const message = (error instanceof Error ? error.message : String(error ?? '')).toLowerCase()
+  if (!message.includes('hls-offline')) {
+    return false
+  }
+
+  return message.includes('eperm') || message.includes('operation not permitted')
 }
 
 /**
@@ -81,7 +101,7 @@ export function attachHlsPlayer(
       return
     }
 
-    onFatalError(data.error?.message || 'Unable to play the video stream.')
+    onFatalError(userError(8264, data.error?.message || 'Unable to play the video stream.'))
   })
 
   hls.on(Events.FRAG_LOADED, () => {

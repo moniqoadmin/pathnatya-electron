@@ -160,7 +160,7 @@ export async function readOfflineManifest(): Promise<OfflineVideoManifest | null
 
 export async function writeOfflineIntegrity(hashes: string[]): Promise<void> {
   if (hashes.length === 0 || hashes.some((hash) => !/^[0-9a-f]{64}$/iu.test(hash))) {
-    throw new Error('Offline integrity hashes are invalid.')
+    throw new Error('482 : Offline integrity hashes are invalid.')
   }
 
   const payload: OfflineIntegrityManifest = {
@@ -228,7 +228,7 @@ export async function assertOfflinePackageIntegrity(
       actual: integrity?.hashes.length ?? 0
     })
     await deleteOfflineVideo()
-    throw new Error('Offline integrity data is missing or incomplete. Re-download the video.')
+    throw new Error('7316 : Something went wrong. Please contact admin.')
   }
 
   for (const segment of manifest.segments) {
@@ -238,7 +238,7 @@ export async function assertOfflinePackageIntegrity(
         index: segment.index
       })
       await deleteOfflineVideo()
-      throw new Error(`Offline segment ${segment.index} is missing. Re-download the video.`)
+      throw new Error('294 : Something went wrong. Please contact admin.')
     }
 
     const actual = hashOfflinePayload(payload)
@@ -254,9 +254,7 @@ export async function assertOfflinePackageIntegrity(
 
     if (!ok) {
       await deleteOfflineVideo()
-      throw new Error(
-        `Offline segment ${segment.index} failed integrity check. Re-download the video.`
-      )
+      throw new Error('8651 : Offline video integrity check failed. Please contact admin.')
     }
   }
 
@@ -282,7 +280,7 @@ export async function assertOfflineSegmentIntegrity(
 
   if (!ok) {
     await deleteOfflineVideo()
-    throw new Error(`Offline segment ${index} failed integrity check. Re-download the video.`)
+    throw new Error('537 : Something went wrong. Please contact admin.')
   }
 }
 

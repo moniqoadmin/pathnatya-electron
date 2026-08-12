@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react'
 import { checkPhone } from '../api/accounts'
 import { isNetworkError } from '../lib/network'
+import { userError } from '../lib/user-error'
 
 interface PhoneCheckPageProps {
   onBack: () => void
@@ -23,7 +24,7 @@ export default function PhoneCheckPage({
 
     const trimmed = phoneNumber.trim()
     if (!/^\d{10}$/.test(trimmed)) {
-      setError('Please enter a valid 10-digit phone number.')
+      setError(userError(318, 'Please enter a valid 10-digit phone number.'))
       return
     }
 
@@ -32,7 +33,7 @@ export default function PhoneCheckPage({
       const result = await checkPhone(trimmed)
 
       if (!result.exists) {
-        setError('Wrong phone number. Please check and try again.')
+        setError(userError(742, 'Wrong phone number. Please check and try again.'))
         return
       }
 
@@ -50,12 +51,15 @@ export default function PhoneCheckPage({
         }
 
         setError(
-          'No internet connection. Offline access is only available within 7 days of a successful online login on this device.'
+          userError(
+            5831,
+            'No internet connection. Offline access is only available within 7 days of a successful online login on this device.'
+          )
         )
         return
       }
 
-      setError('Unable to verify phone number. Please try again.')
+      setError(userError(965, 'Unable to verify phone number. Please try again.'))
     } finally {
       setLoading(false)
     }

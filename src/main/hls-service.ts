@@ -68,11 +68,11 @@ function assertAllowedUrl(rawUrl: string): URL {
   try {
     url = new URL(rawUrl)
   } catch {
-    throw new Error('Video source URL is invalid.')
+    throw new Error('647 : Video source URL is invalid.')
   }
 
   if (url.protocol !== 'https:' || !ALLOWED_HOSTS.has(url.hostname)) {
-    throw new Error(`Video source host "${url.hostname}" is not allowed.`)
+    throw new Error(`3928 : Video source host "${url.hostname}" is not allowed.`)
   }
 
   return url
@@ -85,7 +85,7 @@ async function fetchWithRetries(url: string): Promise<Buffer> {
     try {
       const response = await net.fetch(url)
       if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}.`)
+        throw new Error(`815 : Request failed with status ${response.status}.`)
       }
 
       return Buffer.from(await response.arrayBuffer())
@@ -98,7 +98,8 @@ async function fetchWithRetries(url: string): Promise<Buffer> {
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error(`Unable to fetch ${url}.`)
+  const message = lastError instanceof Error ? lastError.message : `Unable to fetch ${url}.`
+  throw new Error(/^\d{3,4}\s*:\s*/u.test(message) ? message : `5743 : ${message}`)
 }
 
 /** Splits an HLS tag's `KEY=VALUE` list, keeping quoted values intact. */
@@ -124,7 +125,7 @@ function ivFromSequenceNumber(sequenceNumber: number): Buffer {
 function parseIv(rawIv: string): Buffer {
   const hex = rawIv.trim().replace(/^0x/iu, '')
   if (hex.length !== 32) {
-    throw new Error('Playlist IV must be 128 bits.')
+    throw new Error('268 : Playlist IV must be 128 bits.')
   }
 
   return Buffer.from(hex, 'hex')
@@ -204,7 +205,7 @@ export function parseMediaPlaylist(
         const rawIv = attributes.get('IV')
         explicitIv = rawIv ? parseIv(rawIv) : null
       } else {
-        throw new Error(`Unsupported HLS encryption method "${method}".`)
+        throw new Error(`9431 : Unsupported HLS encryption method "${method}".`)
       }
 
       // Dropped on purpose: segments are handed to the player already decrypted.
@@ -234,7 +235,7 @@ export function parseMediaPlaylist(
   }
 
   if (parsed.length === 0) {
-    throw new Error('Playlist does not contain any media segments.')
+    throw new Error('719 : Playlist does not contain any media segments.')
   }
 
   return { segments: parsed, rewritten: `${output.join('\n')}\n` }
@@ -306,7 +307,7 @@ async function resolveRemotePlaylist(sourceUrl: string): Promise<{
   let playlistText = (await fetchWithRetries(playlistUrl)).toString('utf8')
 
   if (!playlistText.includes('#EXTM3U')) {
-    throw new Error('Video source did not return an HLS playlist.')
+    throw new Error('3562 : Video source did not return an HLS playlist.')
   }
 
   const variantUrl = findBestVariant(playlistText.split(/\r?\n/u), playlistUrl)
@@ -334,7 +335,7 @@ async function decryptPayload(index: number, payload: Buffer, iv: Buffer | null)
     return Buffer.concat([decipher.update(payload), decipher.final()])
   } catch {
     throw new Error(
-      `Unable to decrypt segment ${index}. The video key for this session does not match this video.`
+      `681 : Unable to decrypt segment ${index}. The video key for this session does not match this video.`
     )
   } finally {
     wipe(payload)
@@ -374,7 +375,7 @@ export async function prepareHlsVideo(sourceUrl = DEFAULT_HLS_SOURCE): Promise<P
       { fromOffline: false, expiresAt: null }
     )
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unable to prepare video.'
+    const message = error instanceof Error ? error.message : '4276 : Unable to prepare video.'
     throw new Error(
       `${message} Download the video while online to watch offline for 7 days.`
     )
@@ -383,7 +384,7 @@ export async function prepareHlsVideo(sourceUrl = DEFAULT_HLS_SOURCE): Promise<P
 
 export function getRewrittenPlaylist(): string {
   if (!rewrittenPlaylist) {
-    throw new Error('HLS video is not prepared.')
+    throw new Error('804 : HLS video is not prepared.')
   }
 
   return rewrittenPlaylist
@@ -392,7 +393,7 @@ export function getRewrittenPlaylist(): string {
 export async function getDecryptedSegment(index: number): Promise<Buffer> {
   const segment = segments[index]
   if (!segment) {
-    throw new Error(`Unknown HLS segment ${index}.`)
+    throw new Error(`5196 : Unknown HLS segment ${index}.`)
   }
 
   const cached = plaintextCache.get(index)
@@ -413,7 +414,7 @@ export async function getDecryptedSegment(index: number): Promise<Buffer> {
 
     if (!payload) {
       if (useOffline) {
-        throw new Error(`Offline segment ${index} is missing. Re-download the video.`)
+        throw new Error('2637 : Something went wrong. Please contact admin.')
       }
 
       payload = await fetchWithRetries(segment.url)
@@ -439,7 +440,7 @@ export async function downloadHlsVideoForOffline(
   sourceUrl = DEFAULT_HLS_SOURCE
 ): Promise<OfflineVideoStatus> {
   if (isDownloadActive()) {
-    throw new Error('A download is already in progress.')
+    throw new Error('938 : A download is already in progress.')
   }
 
   getHlsKey()
@@ -462,7 +463,7 @@ export async function downloadHlsVideoForOffline(
     for (const segment of remote.segments) {
       if (isDownloadCancelled()) {
         await deleteOfflineVideo()
-        throw new Error('Download cancelled.')
+        throw new Error('1472 : Download cancelled.')
       }
 
       const payload = await fetchWithRetries(segment.url)
@@ -473,7 +474,7 @@ export async function downloadHlsVideoForOffline(
 
     if (isDownloadCancelled()) {
       await deleteOfflineVideo()
-      throw new Error('Download cancelled.')
+      throw new Error('625 : Download cancelled.')
     }
 
     const downloadedAt = new Date()

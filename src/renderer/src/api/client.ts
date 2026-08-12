@@ -1,5 +1,6 @@
 import { APP_KEY, API_BASE } from './config'
 import { decryptPayload, encryptPayload } from './payload-crypto'
+import { userError } from '../lib/user-error'
 
 export type ApiFetchOptions = RequestInit & {
   json?: unknown
@@ -37,7 +38,7 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
   // Binary downloads (template) — no decrypt
   if (contentType.includes('spreadsheet') || contentType.includes('octet-stream')) {
     if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`)
+      throw new Error(userError(4102, `HTTP ${res.status}`))
     }
     return (await res.blob()) as T
   }
@@ -48,12 +49,12 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
 
   const envelope = await res.json()
   if (typeof envelope?.payload !== 'string') {
-    throw new Error('Expected encrypted payload response')
+    throw new Error(userError(3847, 'Expected encrypted payload response'))
   }
 
   const data = await decryptPayload<T>(envelope.payload)
   if (!res.ok) {
-    throw Object.assign(new Error(errorMessage(data, 'API error')), {
+    throw Object.assign(new Error(userError(917, errorMessage(data, 'API error'))), {
       status: res.status,
       data
     })
