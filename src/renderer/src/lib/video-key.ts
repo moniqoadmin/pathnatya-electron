@@ -6,7 +6,7 @@ export async function applyVideoKey(loginTokens: string[]): Promise<void> {
   const token = loginTokens[VIDEO_KEY_TOKEN_INDEX]
 
   if (typeof token !== 'string' || !token.trim()) {
-    throw new Error('Login response did not include a video key.')
+    throw new Error('629 : Login response did not include a video key.')
   }
 
   await window.pathnatya.setVideoKey(token)

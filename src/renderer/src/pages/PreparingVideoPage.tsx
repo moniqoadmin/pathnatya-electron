@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
+import { reportAppLog } from '../api/logs'
 import OfflineToast from '../components/OfflineToast'
-import { downloadHlsVideo, getHlsOfflineStatus, onHlsDownloadProgress } from '../lib/hls-loader'
+import {
+  downloadHlsVideo,
+  getHlsOfflineStatus,
+  isVideoFilesTamperedError,
+  onHlsDownloadProgress,
+  VIDEO_FILES_TAMPERED_MESSAGE
+} from '../lib/hls-loader'
+import { userError } from '../lib/user-error'
 
 interface PreparingVideoPageProps {
   onReady: () => void
@@ -26,8 +34,10 @@ function stageMessage(percent: number): string {
 export default function PreparingVideoPage({ onReady, onLogout }: PreparingVideoPageProps) {
   const [percent, setPercent] = useState(0)
   const [error, setError] = useState('')
+  const [tampered, setTampered] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const readyRef = useRef(false)
+  const tamperReportedRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -90,7 +100,7 @@ export default function PreparingVideoPage({ onReady, onLogout }: PreparingVideo
         if (result.available) {
           finish()
         } else {
-          setError('We could not prepare your video. Please try again.')
+          setError(userError(248, 'We could not prepare your video. Please try again.'))
         }
       } catch (caught) {
         if (cancelled) {
@@ -103,7 +113,24 @@ export default function PreparingVideoPage({ onReady, onLogout }: PreparingVideo
           return
         }
 
-        setError('We could not prepare your video. Check your internet connection and try again.')
+        // A locked/altered offline package blocks the main process from wiping it.
+        // Treat as tampering: log it once and show the contact-admin message.
+        if (isVideoFilesTamperedError(caught)) {
+          if (!tamperReportedRef.current) {
+            tamperReportedRef.current = true
+            reportAppLog('VIDEO_FILES_CHANGED', true)
+          }
+          setTampered(true)
+          setError(VIDEO_FILES_TAMPERED_MESSAGE)
+          return
+        }
+
+        setError(
+          userError(
+            9372,
+            'We could not prepare your video. Check your internet connection and try again.'
+          )
+        )
       }
     })()
 
@@ -117,6 +144,7 @@ export default function PreparingVideoPage({ onReady, onLogout }: PreparingVideo
   function handleRetry(): void {
     readyRef.current = false
     setError('')
+    setTampered(false)
     setPercent(0)
     setAttempt((value) => value + 1)
   }
@@ -156,7 +184,13 @@ export default function PreparingVideoPage({ onReady, onLogout }: PreparingVideo
         </div>
 
         <p className="preparing-status" role="status" aria-live="polite">
-          <span>{error ? 'Something went wrong' : stageMessage(percent)}</span>
+          <span>
+            {error
+              ? tampered
+                ? '573 : Video files tampered'
+                : `${error.split(' : ')[0]} : Something went wrong`
+              : stageMessage(percent)}
+          </span>
           <span className="preparing-percent">{Math.min(100, Math.max(0, percent))}%</span>
         </p>
 
@@ -165,9 +199,11 @@ export default function PreparingVideoPage({ onReady, onLogout }: PreparingVideo
             <p className="form-error" role="alert">
               {error}
             </p>
-            <button type="button" className="btn btn-primary" onClick={handleRetry}>
-              Try again
-            </button>
+            {!tampered && (
+              <button type="button" className="btn btn-primary" onClick={handleRetry}>
+                Try again
+              </button>
+            )}
           </>
         )}
       </section>

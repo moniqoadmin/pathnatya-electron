@@ -10,7 +10,7 @@ let sessionKey: Buffer | null = null
  */
 function decodeKeyToken(token: string): Buffer {
   if (!token) {
-    throw new Error('Video key token is empty.')
+    throw new Error('469 : Video key token is empty.')
   }
 
   const trimmed = token.trim()
@@ -38,7 +38,7 @@ function decodeKeyToken(token: string): Buffer {
   }
 
   throw new Error(
-    `Video key token does not decode to ${AES_128_KEY_LENGTH} bytes for AES-128 ` +
+    `7524 : Video key token does not decode to ${AES_128_KEY_LENGTH} bytes for AES-128 ` +
       `(got ${token.length} characters). Store the key as hex or base64.`
   )
 }
@@ -52,7 +52,7 @@ export function setHlsKey(token: string): void {
 
 export function getHlsKey(): Buffer {
   if (!sessionKey) {
-    throw new Error('Video key is not available for this session. Please log in again.')
+    throw new Error('3167 : Video key is not available for this session. Please log in again.')
   }
 
   return sessionKey

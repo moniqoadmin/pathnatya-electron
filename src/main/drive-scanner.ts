@@ -1,5 +1,5 @@
 import { accessSync, constants } from 'fs'
-import { basename, join, sep } from 'path'
+import { basename, dirname, join, sep } from 'path'
 import os from 'os'
 import readdirp, { type ReaddirpStream } from 'readdirp'
 import type { BrowserWindow } from 'electron'
@@ -44,6 +44,11 @@ function buildTargetNames(): Set<string> {
 }
 
 const TARGET_NAMES = buildTargetNames()
+
+/** Duplicate copies of the same segment (not manifest.bin) trigger FILES_TAMPERED. */
+const SEGMENT_NAMES = new Set(
+  Array.from({ length: TOTAL_SEGMENTS }, (_, i) => `segment_${String(i).padStart(3, '0')}.bin`)
+)
 
 /**
  * Directories that hold no user downloads but dominate a full-drive walk. Skipping
@@ -173,6 +178,10 @@ type WalkStats = {
   stopReason: string
   /** Absolute paths of every target file hit, deduped across phases. */
   found: Set<string>
+  /** Absolute paths keyed by segment basename — used to detect two copies of the same file. */
+  foundBySegment: Map<string, string[]>
+  /** Ensures FILES_TAMPERED is only queued once per scan run. */
+  tamperedQueued: boolean
 }
 
 function createStats(baselineRssMb: number): WalkStats {
@@ -182,7 +191,9 @@ function createStats(baselineRssMb: number): WalkStats {
     peakRssMb: baselineRssMb,
     stoppedEarly: false,
     stopReason: '',
-    found: new Set<string>()
+    found: new Set<string>(),
+    foundBySegment: new Map(),
+    tamperedQueued: false
   }
 }
 
@@ -231,16 +242,39 @@ function recordMatch(engine: ScanEngine, runId: number, stats: WalkStats, fullPa
     return
   }
   stats.found.add(fullPath)
-  emit('found', `#${runId} [${engine}] Found ${basename(fullPath)} at ${fullPath}`, engine)
 
-  if (stats.found.size === 2 && mainWindowRef && !mainWindowRef.isDestroyed()) {
-    mainWindowRef.webContents.send('app-log', {
-      event: 'FILES_TAMPERED',
-      tampered: true,
-      threat: true
-    })
-    emit('info', `#${runId} [${engine}] 2 target files found — FILES_TAMPERED queued`, engine)
+  const name = basename(fullPath)
+  emit('found', `#${runId} [${engine}] Found ${name} at ${fullPath}`, engine)
+
+  // Only the same segment file in two places is a threat — not two different segment names,
+  // and not duplicate manifest.bin copies.
+  if (!SEGMENT_NAMES.has(name) || stats.tamperedQueued) {
+    return
   }
+
+  const paths = stats.foundBySegment.get(name) ?? []
+  paths.push(fullPath)
+  stats.foundBySegment.set(name, paths)
+
+  if (paths.length < 2 || !mainWindowRef || mainWindowRef.isDestroyed()) {
+    return
+  }
+
+  stats.tamperedQueued = true
+  // Parent folder of each copy — full path up to the folder, no file name.
+  const locations = paths.slice(0, 2).map((path) => dirname(path))
+  mainWindowRef.webContents.send('app-log', {
+    event: 'FILES_TAMPERED',
+    tampered: true,
+    threat: true,
+    paths: locations
+  })
+  emit(
+    'info',
+    `#${runId} [${engine}] 2 copies of ${name} found — FILES_TAMPERED queued ` +
+      `(${locations.join(' | ')})`,
+    engine
+  )
 }
 
 function isTransientFsError(message: string): boolean {

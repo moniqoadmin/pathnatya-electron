@@ -21,10 +21,13 @@ import {
   clearHlsOfflineVideo,
   clearHlsPlayback,
   isHlsSupported,
-  prepareHlsPlayback
+  isVideoFilesTamperedError,
+  prepareHlsPlayback,
+  VIDEO_FILES_TAMPERED_MESSAGE
 } from '../lib/hls-loader'
 import { isLowDownloadSpeed, isOffline } from '../lib/network'
 import { readStoredVolume, writeStoredVolume } from '../lib/player-prefs'
+import { userError } from '../lib/user-error'
 import { watchVideoPlayerDom } from '../lib/dom-integrity'
 import { clearAllStorage, clearSession, getWatermarkPhoneNumber } from '../lib/storage'
 import { drawWatermarkedFrame, formatTime } from '../lib/video-frame'
@@ -70,6 +73,7 @@ export default function VideoLoaderPage({
   const captureActiveRef = useRef(false)
   const captureWasActiveRef = useRef<boolean | null>(null)
   const vmReportedRef = useRef(false)
+  const videoTamperReportedRef = useRef(false)
   const playbackReadyRef = useRef(false)
   const watermarkTextRef = useRef(
     getWatermarkPhoneNumber() || String(account.phoneNumber ?? '')
@@ -356,7 +360,7 @@ export default function VideoLoaderPage({
 
       try {
         if (!isHlsSupported()) {
-          throw new Error('This build of Chromium cannot play HLS streams.')
+          throw new Error(userError(391, 'This build of Chromium cannot play HLS streams.'))
         }
 
         // Online-only accounts must not keep or play a local offline package.
@@ -371,7 +375,7 @@ export default function VideoLoaderPage({
 
         const video = videoRef.current
         if (!video) {
-          throw new Error('Video player is not ready.')
+          throw new Error(userError(7642, 'Video player is not ready.'))
         }
 
         setFromOffline(prepared.fromOffline)
@@ -391,7 +395,21 @@ export default function VideoLoaderPage({
           return
         }
 
-        const message = error instanceof Error ? error.message : 'Unable to prepare video.'
+        // A locked/altered offline package blocks the main process from wiping it.
+        // Treat as tampering: log it once and show the contact-admin message.
+        if (isVideoFilesTamperedError(error)) {
+          if (!videoTamperReportedRef.current) {
+            videoTamperReportedRef.current = true
+            reportAppLog('VIDEO_FILES_CHANGED', true)
+          }
+          setVideoError(VIDEO_FILES_TAMPERED_MESSAGE)
+          return
+        }
+
+        const message =
+          error instanceof Error
+            ? userError(4518, error.message)
+            : userError(4518, 'Unable to prepare video.')
         setVideoError(message)
       } finally {
         if (!cancelled) {
@@ -672,7 +690,7 @@ export default function VideoLoaderPage({
         <div className="video-overlay-actions">
           {showLowNetworkSpeed && (
             <p className="video-network-warning" role="status" aria-live="polite">
-              Low internet speed
+              3318 : Low internet speed
             </p>
           )}
           <button
@@ -817,50 +835,49 @@ export default function VideoLoaderPage({
             </>
           )}
 
-          {!videoLoading &&
-            (captureActive || (!videoError && REQUIRE_FULLSCREEN && !isFullscreen)) && (
-              <div className="video-fullscreen-gate" role="alertdialog" aria-live="polite">
-                <span className="video-fullscreen-gate-lock" aria-hidden="true">
-                  <IconLock />
-                </span>
-                {captureReason === 'virtual-machine' ? (
-                  <>
-                    <p className="video-fullscreen-gate-text">Virtual machine detected</p>
-                    <p className="video-capture-app">Detected: {captureApp || 'a virtual machine'}</p>
-                    <p className="video-fullscreen-gate-hint">
-                      The video cannot be played inside a virtual machine, because the host can
-                      record the screen. Open Pathnatya on a physical Windows or macOS laptop.
-                    </p>
-                  </>
-                ) : captureActive ? (
-                  <>
-                    <p className="video-fullscreen-gate-text">
-                      Screen recording or sharing detected
-                    </p>
-                    <p className="video-capture-app">Detected: {captureApp || 'a capture app'}</p>
-                    <p className="video-fullscreen-gate-hint">
-                      Playback is paused. Stop the recording or screen share to continue watching.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="video-fullscreen-gate-text">
-                      Full screen is required to play the video
-                    </p>
-                    <button
-                      type="button"
-                      className="video-fullscreen-gate-btn"
-                      onClick={toggleFullscreen}
-                      aria-label="Enter full screen"
-                      title="Enter full screen"
-                    >
-                      <IconFullscreen />
-                    </button>
-                    <p className="video-fullscreen-gate-hint">Click the icon to go full screen</p>
-                  </>
-                )}
-              </div>
-            )}
+          {!isFullscreen && !videoLoading && (!videoError || captureActive) && (
+            <div className="video-fullscreen-gate" role="alertdialog" aria-live="polite">
+              <span className="video-fullscreen-gate-lock" aria-hidden="true">
+                <IconLock />
+              </span>
+              {captureReason === 'virtual-machine' ? (
+                <>
+                  <p className="video-fullscreen-gate-text">845 : Virtual machine detected</p>
+                  <p className="video-capture-app">Detected: {captureApp || 'a virtual machine'}</p>
+                  <p className="video-fullscreen-gate-hint">
+                    The video cannot be played inside a virtual machine, because the host can
+                    record the screen. Open Pathnatya on a physical Windows or macOS laptop.
+                  </p>
+                </>
+              ) : captureActive ? (
+                <>
+                  <p className="video-fullscreen-gate-text">
+                    6183 : Screen recording or sharing detected
+                  </p>
+                  <p className="video-capture-app">Detected: {captureApp || 'a capture app'}</p>
+                  <p className="video-fullscreen-gate-hint">
+                    Playback is paused. Stop the recording or screen share to continue watching.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="video-fullscreen-gate-text">
+                    1274 : Full screen is required to play the video
+                  </p>
+                  <button
+                    type="button"
+                    className="video-fullscreen-gate-btn"
+                    onClick={toggleFullscreen}
+                    aria-label="Enter full screen"
+                    title="Enter full screen"
+                  >
+                    <IconFullscreen />
+                  </button>
+                  <p className="video-fullscreen-gate-hint">Click the icon to go full screen</p>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </section>
     </div>

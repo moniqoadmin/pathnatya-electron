@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react'
 import { setPassword } from '../api/accounts'
 import PasswordInput from '../components/PasswordInput'
 import { getDeviceId } from '../lib/device-id'
+import { userError } from '../lib/user-error'
 
 interface SetPasswordPageProps {
   phoneNumber: string
@@ -20,12 +21,12 @@ export default function SetPasswordPage({ phoneNumber, onBack, onSuccess }: SetP
     setError('')
 
     if (password.length < 6) {
-      setError('Password must be at least 6 characters.')
+      setError(userError(352, 'Password must be at least 6 characters.'))
       return
     }
 
     if (password !== confirmPassword) {
-      setError('Passwords do not match.')
+      setError(userError(684, 'Passwords do not match.'))
       return
     }
 
@@ -33,7 +34,9 @@ export default function SetPasswordPage({ phoneNumber, onBack, onSuccess }: SetP
     try {
       const deviceId = await getDeviceId()
       if (!deviceId) {
-        setError('Unable to read this device identifier. Check your network connection.')
+        setError(
+          userError(5291, 'Unable to read this device identifier. Check your network connection.')
+        )
         return
       }
 
@@ -43,8 +46,8 @@ export default function SetPasswordPage({ phoneNumber, onBack, onSuccess }: SetP
       const message = error instanceof Error ? error.message : ''
       setError(
         message.includes('Device identifier')
-          ? message
-          : 'Unable to set password. Please try again.'
+          ? userError(783, message)
+          : userError(7614, 'Unable to set password. Please try again.')
       )
     } finally {
       setLoading(false)

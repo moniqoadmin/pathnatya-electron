@@ -174,7 +174,7 @@ function videoBlockedReason(): string | null {
   }
 
   return (
-    `Video playback is blocked because ${vm.vendor} was detected. ` +
+    `845 : Video playback is blocked because ${vm.vendor} was detected. ` +
     'Run Pathnatya on a physical Windows or macOS laptop.'
   )
 }
@@ -411,7 +411,8 @@ app.whenReady().then(async () => {
             }
           })
         } catch (error) {
-          const message = error instanceof Error ? error.message : 'Unable to read playlist.'
+          const message =
+            error instanceof Error ? error.message : '804 : Unable to read playlist.'
           return new Response(message, { status: 500 })
         }
       }
@@ -420,7 +421,7 @@ app.whenReady().then(async () => {
         const segmentIndex = Number.parseInt(url.pathname.slice('/segment/'.length), 10)
 
         if (!Number.isInteger(segmentIndex) || segmentIndex < 0) {
-          return new Response('Invalid segment.', { status: 400 })
+          return new Response('5196 : Invalid segment.', { status: 400 })
         }
 
         try {
@@ -437,13 +438,14 @@ app.whenReady().then(async () => {
             }
           })
         } catch (error) {
-          const message = error instanceof Error ? error.message : 'Unable to read video segment.'
+          const message =
+            error instanceof Error ? error.message : '2637 : Unable to read video segment.'
           return new Response(message, { status: 500 })
         }
       }
     }
 
-    return new Response('Not found', { status: 404 })
+    return new Response('4041 : Not found', { status: 404 })
   })
 
   ipcMain.handle('get-device-id', () => getDeviceIdentifier())
@@ -488,7 +490,7 @@ app.whenReady().then(async () => {
     clearHlsKey()
   })
 
-  ipcMain.handle('prepare-hls-video', async (_event, sourceUrl?: string) => {
+  ipcMain.handle('prepare-video', async (_event, sourceUrl?: string) => {
     const blocked = videoBlockedReason()
     if (blocked) {
       throw new Error(blocked)
