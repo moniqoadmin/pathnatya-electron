@@ -23,6 +23,7 @@ import {
   type OfflineVideoManifest,
   type OfflineVideoStatus
 } from './hls-offline'
+import { syncTrustedTime } from './trusted-time'
 
 export const DEFAULT_HLS_SOURCE =
   'https://pathnatya-video-cdn.b-cdn.net/video-001/playlist.m3u8'
@@ -477,8 +478,10 @@ export async function downloadHlsVideoForOffline(
       throw new Error('625 : Download cancelled.')
     }
 
-    const downloadedAt = new Date()
-    const expiresAt = new Date(downloadedAt.getTime() + OFFLINE_VIDEO_TTL_MS)
+    // Stamp expiry from server time so local clock changes cannot extend the package.
+    const serverNowMs = await syncTrustedTime()
+    const downloadedAt = new Date(serverNowMs)
+    const expiresAt = new Date(serverNowMs + OFFLINE_VIDEO_TTL_MS)
 
     const manifest: OfflineVideoManifest = {
       version: 1,

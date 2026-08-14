@@ -2,10 +2,15 @@ import { promises as fs } from 'fs'
 import { join } from 'path'
 import { app, safeStorage } from 'electron'
 import { pbkdf2Sync, randomBytes, timingSafeEqual } from 'crypto'
+import {
+  getTrustedNowDate,
+  isTrustedTtlExpired,
+  loadTrustedTime
+} from './trusted-time'
 
 const OFFLINE_SESSION_FILE = 'offline-session.dat'
-/** Matches offline video availability so users can log in and watch for 7 days. */
-export const OFFLINE_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
+/** Matches offline video availability so users can log in and watch for 10 days. */
+export const OFFLINE_SESSION_TTL_MS = 10 * 24 * 60 * 60 * 1000
 const PBKDF2_ITERATIONS = 120_000
 const PBKDF2_KEY_LENGTH = 32
 const PBKDF2_DIGEST = 'sha256'
@@ -81,16 +86,12 @@ function unseal(payload: Buffer): string {
 }
 
 function isExpired(savedAt: string): boolean {
-  const savedAtMs = Date.parse(savedAt)
-  if (Number.isNaN(savedAtMs)) {
-    return true
-  }
-
-  return Date.now() - savedAtMs > OFFLINE_SESSION_TTL_MS
+  return isTrustedTtlExpired(savedAt, OFFLINE_SESSION_TTL_MS)
 }
 
 async function readStoredSession(): Promise<StoredOfflineSession | null> {
   try {
+    await loadTrustedTime()
     const encrypted = await fs.readFile(getSessionPath())
     const parsed = JSON.parse(unseal(encrypted)) as StoredOfflineSession
 
@@ -141,7 +142,7 @@ export async function saveOfflineSession(payload: OfflineSessionPayload): Promis
     loginTokens: [...payload.loginTokens],
     passwordSalt: salt.toString('base64'),
     passwordHash: passwordHash.toString('base64'),
-    savedAt: new Date().toISOString()
+    savedAt: getTrustedNowDate().toISOString()
   }
 
   const sealed = seal(JSON.stringify(stored))

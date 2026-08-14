@@ -24,6 +24,7 @@ import {
   tryOfflineLogin,
   type OfflineSessionPayload
 } from './offline-session'
+import { loadTrustedTime, syncTrustedTime } from './trusted-time'
 import { enforceDesktopLaptopOnly } from './platform-guard'
 import {
   getScreenCaptureState,
@@ -521,6 +522,11 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('save-offline-session', async (_event, payload: OfflineSessionPayload) => {
+    try {
+      await syncTrustedTime()
+    } catch (error) {
+      console.warn('[trusted-time] sync before offline session save failed', error)
+    }
     await saveOfflineSession(payload)
   })
 
@@ -555,6 +561,14 @@ app.whenReady().then(async () => {
 
   console.log('runtime value A:', getRuntimeValueA())
   console.log('runtime value B:', getRuntimeValueB())
+
+  await loadTrustedTime()
+  try {
+    const serverNow = await syncTrustedTime()
+    console.log('[trusted-time] synced', new Date(serverNow).toISOString())
+  } catch (error) {
+    console.warn('[trusted-time] startup sync failed; using last known offset if any', error)
+  }
 
   await purgeExpiredOfflineVideo()
 

@@ -3,9 +3,10 @@ import { existsSync, promises as fs } from 'fs'
 import { join } from 'path'
 import { app } from 'electron'
 import { decryptAtRest, encryptAtRest } from './hls-offline-crypto'
+import { isTrustedExpired, loadTrustedTime } from './trusted-time'
 
-/** Offline video package is valid for 7 days from download. */
-export const OFFLINE_VIDEO_TTL_MS = 7 * 24 * 60 * 60 * 1000
+/** Offline video package is valid for 10 days from download (server time). */
+export const OFFLINE_VIDEO_TTL_MS = 10 * 24 * 60 * 60 * 1000
 
 const PACKAGE_DIR_NAME = 'hls-offline'
 /** Stored outside the package folder so segment blobs and hashes are not co-located. */
@@ -116,8 +117,7 @@ function hashesMatch(expectedHex: string, actualHex: string): boolean {
 }
 
 function isExpired(expiresAt: string): boolean {
-  const expiresMs = Date.parse(expiresAt)
-  return Number.isNaN(expiresMs) || Date.now() >= expiresMs
+  return isTrustedExpired(expiresAt)
 }
 
 async function pathExists(filePath: string): Promise<boolean> {
@@ -131,6 +131,7 @@ async function pathExists(filePath: string): Promise<boolean> {
 
 export async function readOfflineManifest(): Promise<OfflineVideoManifest | null> {
   try {
+    await loadTrustedTime()
     const sealed = await fs.readFile(manifestPath())
     const raw = await decryptAtRest(sealed)
     const parsed = JSON.parse(raw.toString('utf8')) as OfflineVideoManifest
