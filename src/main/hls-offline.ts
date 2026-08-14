@@ -129,11 +129,32 @@ async function pathExists(filePath: string): Promise<boolean> {
   }
 }
 
+/**
+ * Decrypt an at-rest blob. On failure (wrong device MAC, tamper, bad header)
+ * wipe the whole offline package so it cannot be reused on another machine.
+ */
+async function decryptSealedFileOrWipe(filePath: string): Promise<Buffer> {
+  const sealed = await fs.readFile(filePath)
+  try {
+    return await decryptAtRest(sealed)
+  } catch (error) {
+    offlineLog('at-rest decrypt failed — wiping offline package', {
+      file: filePath,
+      message: error instanceof Error ? error.message : String(error)
+    })
+    await deleteOfflineVideo()
+    throw error
+  }
+}
+
 export async function readOfflineManifest(): Promise<OfflineVideoManifest | null> {
   try {
     await loadTrustedTime()
-    const sealed = await fs.readFile(manifestPath())
-    const raw = await decryptAtRest(sealed)
+    if (!(await pathExists(manifestPath()))) {
+      return null
+    }
+
+    const raw = await decryptSealedFileOrWipe(manifestPath())
     const parsed = JSON.parse(raw.toString('utf8')) as OfflineVideoManifest
 
     if (
@@ -145,6 +166,7 @@ export async function readOfflineManifest(): Promise<OfflineVideoManifest | null
       !Array.isArray(parsed.segments) ||
       parsed.segments.length === 0
     ) {
+      await deleteOfflineVideo()
       return null
     }
 
@@ -180,8 +202,11 @@ export async function writeOfflineIntegrity(hashes: string[]): Promise<void> {
 
 export async function readOfflineIntegrity(): Promise<OfflineIntegrityManifest | null> {
   try {
-    const sealed = await fs.readFile(integrityPath())
-    const raw = await decryptAtRest(sealed)
+    if (!(await pathExists(integrityPath()))) {
+      return null
+    }
+
+    const raw = await decryptSealedFileOrWipe(integrityPath())
     const parsed = JSON.parse(raw.toString('utf8')) as OfflineIntegrityManifest
 
     if (
@@ -191,6 +216,7 @@ export async function readOfflineIntegrity(): Promise<OfflineIntegrityManifest |
       parsed.hashes.length === 0 ||
       parsed.hashes.some((hash) => typeof hash !== 'string' || !/^[0-9a-f]{64}$/iu.test(hash))
     ) {
+      await deleteOfflineVideo()
       return null
     }
 
@@ -337,9 +363,13 @@ export async function writeOfflineSegment(index: number, data: Buffer): Promise<
 }
 
 export async function readOfflineSegment(index: number): Promise<Buffer | null> {
+  const path = segmentFilePath(index)
+  if (!(await pathExists(path))) {
+    return null
+  }
+
   try {
-    const sealed = await fs.readFile(segmentFilePath(index))
-    return await decryptAtRest(sealed)
+    return await decryptSealedFileOrWipe(path)
   } catch {
     return null
   }
