@@ -3,22 +3,94 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const asar = require('@electron/asar')
+const plist = require('plist')
+const { NtExecutable, NtExecutableResource, Resource } = require('resedit')
 
 const UNIQUE_ASAR_NAME = 'pathnatya-7429163851048276.asar'
-
-function getResourcesDirectory(context) {
-  if (context.electronPlatformName === 'darwin') {
-    const appName = context.packager.appInfo.productFilename
-    return path.join(context.appOutDir, `${appName}.app`, 'Contents', 'Resources')
-  }
-
-  return path.join(context.appOutDir, 'resources')
-}
 
 function sha256(filePath) {
   const hash = crypto.createHash('sha256')
   hash.update(fs.readFileSync(filePath))
   return hash.digest('hex')
+}
+
+function asarHeaderIntegrity(filePath) {
+  const { headerString } = asar.getRawHeader(filePath)
+  return {
+    algorithm: 'SHA256',
+    hash: crypto.createHash('sha256').update(headerString).digest('hex')
+  }
+}
+
+function updateMacIntegrity(context, integrity) {
+  const infoPlistPath = path.join(
+    context.packager.getResourcesDir(context.appOutDir),
+    '..',
+    'Info.plist'
+  )
+  const infoPlist = plist.parse(fs.readFileSync(infoPlistPath, 'utf8'))
+  infoPlist.ElectronAsarIntegrity = integrity
+  fs.writeFileSync(infoPlistPath, plist.build(infoPlist))
+}
+
+function updateWindowsIntegrity(context, integrity) {
+  const executablePath = path.join(
+    context.appOutDir,
+    `${context.packager.appInfo.productFilename}.exe`
+  )
+  const executable = NtExecutable.from(fs.readFileSync(executablePath))
+  const resource = NtExecutableResource.from(executable)
+  const versionInfo = Resource.VersionInfo.fromEntries(resource.entries)
+
+  if (versionInfo.length !== 1) {
+    throw new Error(`Failed to read version information from ${executablePath}`)
+  }
+
+  const languages = versionInfo[0].getAllLanguagesForStringValues()
+  if (languages.length !== 1) {
+    throw new Error(`Failed to locate the executable language in ${executablePath}`)
+  }
+
+  resource.entries = resource.entries.filter(
+    (entry) => !(entry.type === 'INTEGRITY' && entry.id === 'ELECTRONASAR')
+  )
+
+  const integrityList = Object.entries(integrity).map(
+    ([file, { algorithm, hash }]) => ({
+      file: path.win32.normalize(file),
+      alg: algorithm,
+      value: hash
+    })
+  )
+
+  resource.entries.push({
+    type: 'INTEGRITY',
+    id: 'ELECTRONASAR',
+    bin: Buffer.from(JSON.stringify(integrityList)),
+    lang: languages[0].lang,
+    codepage: languages[0].codepage
+  })
+
+  resource.outputResource(executable)
+  fs.writeFileSync(executablePath, Buffer.from(executable.generate()))
+}
+
+function updateEmbeddedAsarIntegrity(
+  context,
+  standardAsarPath,
+  uniqueAsarPath
+) {
+  const prefix = context.electronPlatformName === 'darwin' ? 'Resources' : ''
+  const integrity = {
+    [path.join(prefix, 'app.asar')]: asarHeaderIntegrity(standardAsarPath),
+    [path.join(prefix, UNIQUE_ASAR_NAME)]: asarHeaderIntegrity(uniqueAsarPath)
+  }
+
+  if (context.electronPlatformName === 'darwin') {
+    updateMacIntegrity(context, integrity)
+  } else if (context.electronPlatformName === 'win32') {
+    updateWindowsIntegrity(context, integrity)
+  }
 }
 
 function createLauncherSource(expectedHash) {
@@ -74,7 +146,7 @@ try {
 }
 
 module.exports = async function renameApplicationAsar(context) {
-  const resourcesDirectory = getResourcesDirectory(context)
+  const resourcesDirectory = context.packager.getResourcesDir(context.appOutDir)
   const standardAsarPath = path.join(resourcesDirectory, 'app.asar')
   const uniqueAsarPath = path.join(resourcesDirectory, UNIQUE_ASAR_NAME)
   const standardUnpackedPath = `${standardAsarPath}.unpacked`
@@ -115,6 +187,8 @@ module.exports = async function renameApplicationAsar(context) {
   } finally {
     fs.rmSync(launcherDirectory, { recursive: true, force: true })
   }
+
+  updateEmbeddedAsarIntegrity(context, standardAsarPath, uniqueAsarPath)
 
   console.log(
     `Packaged application as ${UNIQUE_ASAR_NAME}; app.asar contains only the integrity launcher.`
