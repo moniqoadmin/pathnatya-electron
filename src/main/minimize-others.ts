@@ -15,6 +15,7 @@ let running = false
 let queued = false
 let lastRunAt = 0
 let isStillFocused: (() => boolean) | null = null
+let activeChild: ChildProcess | null = null
 
 /**
  * Minimizes (Windows) or hides (macOS) other apps when Pathnatya gains focus.
@@ -85,10 +86,20 @@ async function runMinimizeOtherApps(): Promise<void> {
   }
 }
 
-/** Resolves once the work settles or the deadline passes, whichever comes first. */
+/**
+ * Resolves once the work settles or the deadline passes, whichever comes first. Hitting
+ * the deadline means the child outlived its own kill timer, so the tree is taken down
+ * before the in-flight latch is released: two overlapping sweeps would otherwise
+ * enumerate and minimise windows against each other's foreground check.
+ */
 function withHardDeadline(work: Promise<void>): Promise<void> {
   return new Promise((resolve) => {
-    const timer = setTimeout(resolve, HARD_DEADLINE_MS)
+    const timer = setTimeout(() => {
+      if (activeChild) {
+        killTree(activeChild)
+      }
+      resolve()
+    }, HARD_DEADLINE_MS)
     timer.unref()
 
     const done = (): void => {
@@ -116,6 +127,8 @@ function runHelper(command: string, args: string[]): Promise<void> {
       return
     }
 
+    activeChild = child
+
     let settled = false
     const killTimer = setTimeout(() => killTree(child), TIMEOUT_MS)
     killTimer.unref()
@@ -127,6 +140,11 @@ function runHelper(command: string, args: string[]): Promise<void> {
 
       settled = true
       clearTimeout(killTimer)
+
+      if (activeChild === child) {
+        activeChild = null
+      }
+
       resolve()
     }
 
@@ -161,6 +179,8 @@ async function minimizeOthersWindows(keepPid: number): Promise<void> {
   const script = `
 Add-Type -TypeDefinition @"
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 public static class PathnatyaMinOther {
@@ -170,15 +190,57 @@ public static class PathnatyaMinOther {
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
   [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hWnd);
   [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)]
   static extern int GetClassName(IntPtr hWnd, StringBuilder sb, int maxCount);
-  static bool IsShell(string cls) {
-    return cls == "Progman" || cls == "WorkerW" || cls == "Shell_TrayWnd"
-      || cls == "Shell_SecondaryTrayWnd" || cls == "NotifyIconOverflowWindow"
-      || cls == "Windows.UI.Core.CoreWindow";
+
+  // Explorer creates one HWND per shell surface and then reuses it, showing and hiding
+  // it rather than recreating it. Minimising one therefore leaves the task switcher or
+  // taskbar flyout permanently iconic: it never reappears until explorer.exe restarts.
+  static readonly string[] ShellClasses = {
+    "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd",
+    "NotifyIconOverflowWindow", "TopLevelWindowForOverflowXamlIsland",
+    "Windows.UI.Core.CoreWindow", "XamlExplorerHostIslandWindow",
+    "MultitaskingViewFrame", "Xaml_WindowedPopupClass", "TaskListThumbnailWnd",
+    "TaskListOverlayWnd", "ForegroundStaging", "Shell_InputSwitchTopLevelWindow",
+    "Shell_Dim", "Shell_LightDismissOverlay",
+    "Windows.UI.Composition.DesktopWindowContentBridge"
+  };
+
+  // File Explorer shares explorer.exe with the shell surfaces above, so it has to be
+  // matched by class to stay minimisable once the owner check starts skipping that pid.
+  static bool IsFileExplorer(string cls) {
+    return cls == "CabinetWClass" || cls == "ExploreWClass";
   }
+
+  static bool IsShellClass(string cls) {
+    foreach (var known in ShellClasses) { if (cls == known) return true; }
+    return false;
+  }
+
+  // Catch-all for shell surfaces whose class names change between Windows releases.
+  static HashSet<uint> ShellPids() {
+    var pids = new HashSet<uint>();
+    string[] names = { "explorer", "ShellExperienceHost", "StartMenuExperienceHost", "SearchHost", "SearchApp", "TextInputHost" };
+    foreach (var name in names) {
+      try {
+        foreach (var proc in Process.GetProcessesByName(name)) { pids.Add((uint)proc.Id); }
+      } catch {}
+    }
+    return pids;
+  }
+
   public static void Run(uint keepPid) {
+    // The sweep is scheduled when we gain focus but only lands seconds later, once
+    // Add-Type has finished compiling. If the user switched away in the meantime,
+    // minimising now would yank back the window they just picked, so bail instead.
+    uint foregroundPid;
+    GetWindowThreadProcessId(GetForegroundWindow(), out foregroundPid);
+    if (foregroundPid != keepPid) return;
+
+    var shellPids = ShellPids();
+
     EnumWindows((hWnd, lParam) => {
       if (!IsWindowVisible(hWnd) || IsIconic(hWnd)) return true;
       uint pid;
@@ -186,7 +248,9 @@ public static class PathnatyaMinOther {
       if (pid == keepPid) return true;
       var sb = new StringBuilder(256);
       GetClassName(hWnd, sb, sb.Capacity);
-      if (IsShell(sb.ToString())) return true;
+      var cls = sb.ToString();
+      if (IsShellClass(cls)) return true;
+      if (shellPids.Contains(pid) && !IsFileExplorer(cls)) return true;
       ShowWindow(hWnd, SW_MINIMIZE);
       return true;
     }, IntPtr.Zero);
