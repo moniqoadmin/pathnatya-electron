@@ -35,6 +35,13 @@ import { detectVirtualMachine, getVirtualMachineVerdict } from './vm-guard'
 import { minimizeOtherApps } from './minimize-others'
 import { createTray, destroyTray, hideWindowToTray, revealWindow } from './tray'
 import { startDriveScanLoop, stopDriveScanLoop } from './drive-scanner'
+import {
+  cleanupPermissionProbe,
+  getAppPermissionsStatus,
+  openPermissionSettings,
+  requestAccessibilityPermission,
+  type PermissionId
+} from './permissions-guard'
 
 const isDev = !app.isPackaged
 
@@ -450,6 +457,14 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('get-vm-state', () => getVirtualMachineVerdict())
 
+  ipcMain.handle('get-app-permissions', () => getAppPermissionsStatus())
+
+  ipcMain.handle('open-permission-settings', async (_event, id?: PermissionId) => {
+    await openPermissionSettings(id)
+  })
+
+  ipcMain.handle('request-accessibility-permission', () => requestAccessibilityPermission())
+
   // Drive streaming scan — started only when login returns chokidar: true.
   ipcMain.handle('set-drive-scan-enabled', (event, enabled: boolean) => {
     if (!enabled) {
@@ -571,6 +586,7 @@ app.whenReady().then(async () => {
   }
 
   await purgeExpiredOfflineVideo()
+  await cleanupPermissionProbe()
 
   createWindow()
 

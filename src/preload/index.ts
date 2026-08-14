@@ -31,6 +31,23 @@ export type ScanLogEntry = {
   time: number
 }
 
+export type PermissionId = 'files' | 'accessibility' | 'folders'
+
+export type AppPermission = {
+  id: PermissionId
+  label: string
+  description: string
+  required: boolean
+  granted: boolean
+  howToEnable: string
+}
+
+export type AppPermissionsStatus = {
+  platform: 'darwin' | 'win32' | 'other'
+  allRequiredGranted: boolean
+  permissions: AppPermission[]
+}
+
 const API = {
   getVersion: () => API_VERSION,
   getPlatform: () => process.platform,
@@ -117,6 +134,12 @@ const API = {
   getScreenCaptureState: () =>
     ipcRenderer.invoke('get-screen-capture-state') as Promise<ScreenCaptureState>,
   getVmState: () => ipcRenderer.invoke('get-vm-state') as Promise<VmState>,
+  getAppPermissions: () =>
+    ipcRenderer.invoke('get-app-permissions') as Promise<AppPermissionsStatus>,
+  openPermissionSettings: (id?: PermissionId) =>
+    ipcRenderer.invoke('open-permission-settings', id) as Promise<void>,
+  requestAccessibilityPermission: () =>
+    ipcRenderer.invoke('request-accessibility-permission') as Promise<boolean>,
   onScreenCaptureChanged: (callback: (state: ScreenCaptureState) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, state: ScreenCaptureState): void => {
       callback(state)
