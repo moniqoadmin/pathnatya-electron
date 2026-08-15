@@ -5,15 +5,20 @@ import { clearHlsPlayback } from './lib/hls-loader'
 import { clearAllStorage } from './lib/storage'
 import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
+import PermissionsPage from './pages/PermissionsPage'
 import PhoneCheckPage from './pages/PhoneCheckPage'
 import PreparingVideoPage from './pages/PreparingVideoPage'
 import SetPasswordPage from './pages/SetPasswordPage'
 import VideoLoaderPage from './pages/VideoLoaderPage'
 import TamperWarning from './components/TamperWarning'
+import type { AppPermissionsStatus, PermissionId } from './env'
 
 type Page = 'landing' | 'phone-check' | 'set-password' | 'login' | 'preparing' | 'video'
 
 const SESSION_TIMEOUT_MS = 60 * 60 * 1000
+
+/** Re-check OS permissions on this interval so revoked grants re-open the gate. */
+const PERMISSIONS_POLL_MS = 60 * 1000
 
 /** How long the "delete the duplicate copy" warning stays up before the forced logout. */
 const TAMPER_WARNING_SECONDS = 10
@@ -25,6 +30,8 @@ const APP_LOG_EVENTS = new Set<AppLogEvent>([
 ])
 
 export default function App() {
+  const [permissions, setPermissions] = useState<AppPermissionsStatus | null>(null)
+  const [permissionsChecking, setPermissionsChecking] = useState(true)
   const [page, setPage] = useState<Page>('landing')
   const [phoneNumber, setPhoneNumber] = useState('')
   const [account, setAccount] = useState<Account | null>(null)
@@ -33,6 +40,42 @@ export default function App() {
   const filesTamperedReportedRef = useRef(false)
   const filesTamperedRequestRef = useRef(false)
   const virtualMachineRef = useRef(false)
+
+  const refreshPermissions = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = Boolean(options?.silent)
+    if (!silent) {
+      setPermissionsChecking(true)
+    }
+
+    try {
+      const status = await window.pathnatya.getAppPermissions()
+      setPermissions(status)
+    } catch (error) {
+      console.error('Unable to read app permissions:', error)
+      // Fail closed: keep the gate up with an empty denied checklist.
+      setPermissions({
+        platform: 'other',
+        allRequiredGranted: false,
+        permissions: []
+      })
+    } finally {
+      if (!silent) {
+        setPermissionsChecking(false)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshPermissions()
+
+    const intervalId = window.setInterval(() => {
+      void refreshPermissions({ silent: true })
+    }, PERMISSIONS_POLL_MS)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [refreshPermissions])
 
   useEffect(() => {
     clearAllStorage()
@@ -129,6 +172,51 @@ export default function App() {
   const handleVideoReady = useCallback(() => {
     setPage('video')
   }, [])
+
+  const handleOpenPermissionSettings = useCallback(async (id?: PermissionId) => {
+    try {
+      if (id === 'accessibility' || id === undefined) {
+        await window.pathnatya.requestAccessibilityPermission()
+      }
+      await window.pathnatya.openPermissionSettings(id)
+    } catch (error) {
+      console.error('Unable to open permission settings:', error)
+    }
+  }, [])
+
+  if (permissionsChecking && !permissions) {
+    return (
+      <div className="page permissions-page">
+        <header className="page-header">
+          <p className="sanskrit-header">Jay Yogeshwar</p>
+          <h1>Pathnatya 2026</h1>
+          <p className="page-subtitle">Checking permissions…</p>
+        </header>
+      </div>
+    )
+  }
+
+  // Block the whole app until required OS permissions are granted.
+  if (!permissions || !permissions.allRequiredGranted) {
+    const gateStatus: AppPermissionsStatus = permissions ?? {
+      platform: 'other',
+      allRequiredGranted: false,
+      permissions: []
+    }
+
+    return (
+      <PermissionsPage
+        status={gateStatus}
+        checking={permissionsChecking}
+        onRecheck={() => {
+          void refreshPermissions()
+        }}
+        onOpenSettings={(id) => {
+          void handleOpenPermissionSettings(id)
+        }}
+      />
+    )
+  }
 
   let content: ReactNode
 

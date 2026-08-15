@@ -161,14 +161,22 @@ export async function decryptAtRest(payload: Buffer): Promise<Buffer> {
   const decipher = createDecipheriv('aes-256-gcm', key, nonce)
   decipher.setAuthTag(tag)
 
-  const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()])
-  offlineCryptoLog('decrypt + strip header', {
-    sealedBytes: payload.length,
-    plaintextBytes: plaintext.length,
-    magic: OFFLINE_AT_REST_MAGIC.toString('utf8'),
-    version,
-    macBound: Boolean(mac && mac !== 'macAddress')
-  })
-
-  return plaintext
+  try {
+    const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()])
+    offlineCryptoLog('decrypt + strip header', {
+      sealedBytes: payload.length,
+      plaintextBytes: plaintext.length,
+      magic: OFFLINE_AT_REST_MAGIC.toString('utf8'),
+      version,
+      macBound: Boolean(mac && mac !== 'macAddress')
+    })
+    return plaintext
+  } catch {
+    // GCM auth failure: wrong machine MAC mixed into the key, or tampered ciphertext.
+    offlineCryptoLog('decrypt failed: auth tag (wrong device MAC or tampered package)', {
+      sealedBytes: payload.length,
+      macBound: Boolean(mac && mac !== 'macAddress')
+    })
+    throw new Error('2194 : Offline video is not valid on this device.')
+  }
 }

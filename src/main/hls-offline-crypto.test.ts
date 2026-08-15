@@ -2,13 +2,15 @@ import { mkdtemp, readFile, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { UNIQUE_MANIFEST_NAME } from '../shared/unique-asar-name'
 
 let userDataDir = ''
 let bindingMac = 'AA:BB:CC:DD:EE:FF'
 
 vi.mock('electron', () => ({
   app: {
-    getPath: () => userDataDir
+    getPath: () => userDataDir,
+    getAppPath: () => process.cwd()
   },
   safeStorage: {
     isEncryptionAvailable: () => false,
@@ -77,12 +79,13 @@ describe('hls-offline-crypto', () => {
   it('fails decrypt when the bound MAC changes', async () => {
     const sealed = await encryptAtRest(Buffer.from('mac-bound-video'))
     bindingMac = '11:22:33:44:55:66'
-    await expect(decryptAtRest(sealed)).rejects.toThrow()
+    await expect(decryptAtRest(sealed)).rejects.toThrow(/not valid on this device/u)
   })
 })
 
 describe('hls-offline at-rest storage', () => {
   beforeEach(async () => {
+    bindingMac = 'AA:BB:CC:DD:EE:FF'
     userDataDir = await mkdtemp(join(tmpdir(), 'pathnatya-offline-'))
   })
 
@@ -116,11 +119,39 @@ describe('hls-offline at-rest storage', () => {
 
     await writeOfflineManifest(manifest)
 
-    const onDisk = await readFile(join(userDataDir, 'hls-offline', 'manifest.bin'))
+    const onDisk = await readFile(join(userDataDir, 'hls-offline', UNIQUE_MANIFEST_NAME))
+    // Whole DB is at-rest sealed — no SQLite magic or plaintext on disk.
     expect(isAtRestPayload(onDisk)).toBe(true)
+    expect(onDisk.subarray(0, 15).toString('utf8')).not.toBe('SQLite format 3')
     expect(onDisk.toString('utf8')).not.toContain('sourceUrl')
+    expect(onDisk.toString('utf8')).not.toContain('SQLite format 3')
 
     await expect(readOfflineManifest()).resolves.toEqual(manifest)
+  })
+
+  it('wipes the offline package when decrypt fails due to MAC mismatch', async () => {
+    const original = Buffer.from('mac-bound-segment')
+    await writeOfflineSegment(0, original)
+
+    const manifest = {
+      version: 1 as const,
+      sourceUrl: 'https://pathnatya-video-cdn.b-cdn.net/video-001/playlist.m3u8',
+      downloadedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      totalDurationSeconds: 1,
+      segmentCount: 1,
+      rewrittenPlaylist: '#EXTM3U\n',
+      segments: [{ index: 0, durationSeconds: 1, iv: null, file: 'segment_000.bin' }]
+    }
+    await writeOfflineManifest(manifest)
+
+    const packageDir = join(userDataDir, 'hls-offline')
+    await expect(readFile(join(packageDir, UNIQUE_MANIFEST_NAME))).resolves.toBeInstanceOf(Buffer)
+
+    bindingMac = '11:22:33:44:55:66'
+    await expect(readOfflineSegment(0)).resolves.toBeNull()
+    await expect(readFile(join(packageDir, UNIQUE_MANIFEST_NAME))).rejects.toThrow()
+    await expect(readFile(join(packageDir, 'segments', 'segment_000.bin'))).rejects.toThrow()
   })
 
   it('stores segment hashes outside the package and verifies after decrypt', async () => {

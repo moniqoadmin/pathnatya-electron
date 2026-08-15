@@ -24,6 +24,7 @@ import {
   tryOfflineLogin,
   type OfflineSessionPayload
 } from './offline-session'
+import { loadTrustedTime, syncTrustedTime } from './trusted-time'
 import { enforceDesktopLaptopOnly } from './platform-guard'
 import {
   getScreenCaptureState,
@@ -34,6 +35,14 @@ import { detectVirtualMachine, getVirtualMachineVerdict } from './vm-guard'
 import { minimizeOtherApps } from './minimize-others'
 import { createTray, destroyTray, hideWindowToTray, revealWindow } from './tray'
 import { startDriveScanLoop, stopDriveScanLoop } from './drive-scanner'
+import { startAsarWatch, stopAsarWatch } from './asar-watcher'
+import {
+  cleanupPermissionProbe,
+  getAppPermissionsStatus,
+  openPermissionSettings,
+  requestAccessibilityPermission,
+  type PermissionId
+} from './permissions-guard'
 
 const isDev = !app.isPackaged
 const isWindowedBuild = __PATHNATYA_WINDOWED__
@@ -365,7 +374,19 @@ function createWindow(): void {
   })
 
   startScreenCaptureWatch(mainWindow)
+  startAsarWatch(mainWindow, (window, asarPath) => {
+    if (window.isDestroyed()) {
+      return
+    }
+    window.webContents.send('app-log', {
+      event: 'FILES_TAMPERED',
+      tampered: true,
+      threat: true,
+      paths: [asarPath]
+    })
+  })
   mainWindow.on('closed', () => {
+    stopAsarWatch()
     stopScreenCaptureWatch()
     stopDriveScanLoop()
     destroyTray()
@@ -458,6 +479,14 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('get-vm-state', () => getVirtualMachineVerdict())
 
+  ipcMain.handle('get-app-permissions', () => getAppPermissionsStatus())
+
+  ipcMain.handle('open-permission-settings', async (_event, id?: PermissionId) => {
+    await openPermissionSettings(id)
+  })
+
+  ipcMain.handle('request-accessibility-permission', () => requestAccessibilityPermission())
+
   // Drive streaming scan — started only when login returns chokidar: true.
   ipcMain.handle('set-drive-scan-enabled', (event, enabled: boolean) => {
     if (!enabled) {
@@ -530,6 +559,11 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('save-offline-session', async (_event, payload: OfflineSessionPayload) => {
+    try {
+      await syncTrustedTime()
+    } catch (error) {
+      console.warn('[trusted-time] sync before offline session save failed', error)
+    }
     await saveOfflineSession(payload)
   })
 
@@ -565,7 +599,16 @@ app.whenReady().then(async () => {
   console.log('runtime value A:', getRuntimeValueA())
   console.log('runtime value B:', getRuntimeValueB())
 
+  await loadTrustedTime()
+  try {
+    const serverNow = await syncTrustedTime()
+    console.log('[trusted-time] synced', new Date(serverNow).toISOString())
+  } catch (error) {
+    console.warn('[trusted-time] startup sync failed; using last known offset if any', error)
+  }
+
   await purgeExpiredOfflineVideo()
+  await cleanupPermissionProbe()
 
   createWindow()
 

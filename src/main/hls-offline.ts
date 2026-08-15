@@ -2,16 +2,25 @@ import { createHash, timingSafeEqual } from 'crypto'
 import { existsSync, promises as fs } from 'fs'
 import { join } from 'path'
 import { app } from 'electron'
+import { UNIQUE_MANIFEST_NAME } from '../shared/unique-asar-name'
 import { decryptAtRest, encryptAtRest } from './hls-offline-crypto'
+import { readSealedManifestBlob, writeSealedManifestBlob } from './hls-offline-db'
+import { isTrustedExpired, loadTrustedTime } from './trusted-time'
 
-/** Offline video package is valid for 7 days from download. */
-export const OFFLINE_VIDEO_TTL_MS = 7 * 24 * 60 * 60 * 1000
+/** Offline video package is valid for 10 days from download (server time). */
+export const OFFLINE_VIDEO_TTL_MS = 10 * 24 * 60 * 60 * 1000
 
 const PACKAGE_DIR_NAME = 'hls-offline'
 /** Stored outside the package folder so segment blobs and hashes are not co-located. */
 const INTEGRITY_FILE = 'hls-offline.integrity'
-const MANIFEST_FILE = 'manifest.bin'
+const MANIFEST_FILE = UNIQUE_MANIFEST_NAME
 const SEGMENTS_DIR = 'segments'
+/** Pre-SQLite / pre-rename basenames; wipe so users re-download under the UUID DB. */
+const LEGACY_MANIFEST_FILES = [
+  'manifest.json',
+  'manifest.bin',
+  'c8e2b4a1-6f3d-4c9a-b715-9e0a3d7f2c48.bin'
+] as const
 
 function offlineLog(message: string, detail?: Record<string, unknown>): void {
   if (detail) {
@@ -116,8 +125,7 @@ function hashesMatch(expectedHex: string, actualHex: string): boolean {
 }
 
 function isExpired(expiresAt: string): boolean {
-  const expiresMs = Date.parse(expiresAt)
-  return Number.isNaN(expiresMs) || Date.now() >= expiresMs
+  return isTrustedExpired(expiresAt)
 }
 
 async function pathExists(filePath: string): Promise<boolean> {
@@ -129,10 +137,53 @@ async function pathExists(filePath: string): Promise<boolean> {
   }
 }
 
+/**
+ * Decrypt an at-rest blob. On failure (wrong device MAC, tamper, bad header)
+ * wipe the whole offline package so it cannot be reused on another machine.
+ */
+async function decryptSealedBlobOrWipe(sealed: Buffer, sourceLabel: string): Promise<Buffer> {
+  try {
+    return await decryptAtRest(sealed)
+  } catch (error) {
+    offlineLog('at-rest decrypt failed — wiping offline package', {
+      file: sourceLabel,
+      message: error instanceof Error ? error.message : String(error)
+    })
+    await deleteOfflineVideo()
+    throw error
+  }
+}
+
+async function decryptSealedFileOrWipe(filePath: string): Promise<Buffer> {
+  const sealed = await fs.readFile(filePath)
+  return decryptSealedBlobOrWipe(sealed, filePath)
+}
+
 export async function readOfflineManifest(): Promise<OfflineVideoManifest | null> {
   try {
-    const sealed = await fs.readFile(manifestPath())
-    const raw = await decryptAtRest(sealed)
+    await loadTrustedTime()
+    if (!(await pathExists(manifestPath()))) {
+      return null
+    }
+
+    let sealed: Buffer | null
+    try {
+      sealed = await readSealedManifestBlob(manifestPath())
+    } catch (error) {
+      offlineLog('manifest db decrypt/read failed — wiping offline package', {
+        file: manifestPath(),
+        message: error instanceof Error ? error.message : String(error)
+      })
+      await deleteOfflineVideo()
+      return null
+    }
+
+    if (!sealed) {
+      await deleteOfflineVideo()
+      return null
+    }
+
+    const raw = await decryptSealedBlobOrWipe(sealed, manifestPath())
     const parsed = JSON.parse(raw.toString('utf8')) as OfflineVideoManifest
 
     if (
@@ -144,6 +195,7 @@ export async function readOfflineManifest(): Promise<OfflineVideoManifest | null
       !Array.isArray(parsed.segments) ||
       parsed.segments.length === 0
     ) {
+      await deleteOfflineVideo()
       return null
     }
 
@@ -179,8 +231,11 @@ export async function writeOfflineIntegrity(hashes: string[]): Promise<void> {
 
 export async function readOfflineIntegrity(): Promise<OfflineIntegrityManifest | null> {
   try {
-    const sealed = await fs.readFile(integrityPath())
-    const raw = await decryptAtRest(sealed)
+    if (!(await pathExists(integrityPath()))) {
+      return null
+    }
+
+    const raw = await decryptSealedFileOrWipe(integrityPath())
     const parsed = JSON.parse(raw.toString('utf8')) as OfflineIntegrityManifest
 
     if (
@@ -190,6 +245,7 @@ export async function readOfflineIntegrity(): Promise<OfflineIntegrityManifest |
       parsed.hashes.length === 0 ||
       parsed.hashes.some((hash) => typeof hash !== 'string' || !/^[0-9a-f]{64}$/iu.test(hash))
     ) {
+      await deleteOfflineVideo()
       return null
     }
 
@@ -336,9 +392,13 @@ export async function writeOfflineSegment(index: number, data: Buffer): Promise<
 }
 
 export async function readOfflineSegment(index: number): Promise<Buffer | null> {
+  const path = segmentFilePath(index)
+  if (!(await pathExists(path))) {
+    return null
+  }
+
   try {
-    const sealed = await fs.readFile(segmentFilePath(index))
-    return await decryptAtRest(sealed)
+    return await decryptSealedFileOrWipe(path)
   } catch {
     return null
   }
@@ -347,7 +407,7 @@ export async function readOfflineSegment(index: number): Promise<Buffer | null> 
 export async function writeOfflineManifest(manifest: OfflineVideoManifest): Promise<void> {
   await ensureOfflineDirs()
   const sealed = await encryptAtRest(Buffer.from(JSON.stringify(manifest), 'utf8'))
-  await fs.writeFile(manifestPath(), sealed)
+  await writeSealedManifestBlob(manifestPath(), sealed)
 }
 
 export async function deleteOfflineVideo(): Promise<void> {
@@ -365,11 +425,12 @@ export async function deleteOfflineVideo(): Promise<void> {
 
 export async function purgeExpiredOfflineVideo(): Promise<void> {
   try {
-    // Legacy plaintext packages used manifest.json — wipe so users re-download encrypted.
-    const legacyManifest = join(packageRoot(), 'manifest.json')
-    if (await pathExists(legacyManifest)) {
-      await deleteOfflineVideo()
-      return
+    // Legacy file-based manifests — wipe so users re-download into the UUID SQLite DB.
+    for (const legacyName of LEGACY_MANIFEST_FILES) {
+      if (await pathExists(join(packageRoot(), legacyName))) {
+        await deleteOfflineVideo()
+        return
+      }
     }
 
     if (!(await pathExists(manifestPath()))) {

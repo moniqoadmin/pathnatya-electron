@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'child_process'
+import { systemPreferences } from 'electron'
 
 const DEBOUNCE_MS = 200
 const TIMEOUT_MS = 8000
@@ -16,6 +17,30 @@ let queued = false
 let lastRunAt = 0
 let isStillFocused: (() => boolean) | null = null
 let activeChild: ChildProcess | null = null
+let macPermissionPrompted = false
+
+function ensureMacAccessibilityPermission(): boolean {
+  if (process.platform !== 'darwin') {
+    return true
+  }
+
+  const shouldPrompt = !macPermissionPrompted
+  macPermissionPrompted = true
+
+  try {
+    const trusted = systemPreferences.isTrustedAccessibilityClient(shouldPrompt)
+    if (!trusted) {
+      console.warn(
+        '[mac-permissions] Accessibility permission is required to hide other applications. ' +
+          'Enable Pathnatya 2026 in System Settings > Privacy & Security > Accessibility, then restart the app.'
+      )
+    }
+    return trusted
+  } catch (error) {
+    console.warn('[mac-permissions] Unable to check Accessibility permission:', error)
+    return false
+  }
+}
 
 /**
  * Minimizes (Windows) or hides (macOS) other apps when Pathnatya gains focus.
@@ -73,10 +98,13 @@ async function runMinimizeOtherApps(): Promise<void> {
     if (process.platform === 'win32') {
       await withHardDeadline(minimizeOthersWindows(process.pid))
     } else if (process.platform === 'darwin') {
+      if (!ensureMacAccessibilityPermission()) {
+        return
+      }
       await withHardDeadline(hideOthersMac(process.pid))
     }
-  } catch {
-    // Best-effort UX aid; never block the main window on OS scripting failures.
+  } catch (error) {
+    console.warn('[minimize-others] Unable to hide other applications:', error)
   } finally {
     running = false
     if (queued) {
@@ -175,7 +203,6 @@ function killTree(child: ChildProcess): void {
 }
 
 async function minimizeOthersWindows(keepPid: number): Promise<void> {
-  // Enumerate top-level windows and SW_MINIMIZE anything visible that is not us or the shell.
   const script = `
 Add-Type -TypeDefinition @"
 using System;
@@ -195,9 +222,6 @@ public static class PathnatyaMinOther {
   [DllImport("user32.dll", CharSet = CharSet.Unicode)]
   static extern int GetClassName(IntPtr hWnd, StringBuilder sb, int maxCount);
 
-  // Explorer creates one HWND per shell surface and then reuses it, showing and hiding
-  // it rather than recreating it. Minimising one therefore leaves the task switcher or
-  // taskbar flyout permanently iconic: it never reappears until explorer.exe restarts.
   static readonly string[] ShellClasses = {
     "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd",
     "NotifyIconOverflowWindow", "TopLevelWindowForOverflowXamlIsland",
@@ -208,8 +232,6 @@ public static class PathnatyaMinOther {
     "Windows.UI.Composition.DesktopWindowContentBridge"
   };
 
-  // File Explorer shares explorer.exe with the shell surfaces above, so it has to be
-  // matched by class to stay minimisable once the owner check starts skipping that pid.
   static bool IsFileExplorer(string cls) {
     return cls == "CabinetWClass" || cls == "ExploreWClass";
   }
@@ -219,12 +241,7 @@ public static class PathnatyaMinOther {
     return false;
   }
 
-  // Catch-all for shell surfaces whose class names change between Windows releases.
   static HashSet<uint> ShellPids() {
-    var pids = new HashSet<uint>();
-    string[] names = { "explorer", "ShellExperienceHost", "StartMenuExperienceHost", "SearchHost", "SearchApp", "TextInputHost" };
-    foreach (var name in names) {
-      try {
         foreach (var proc in Process.GetProcessesByName(name)) { pids.Add((uint)proc.Id); }
       } catch {}
     }
@@ -232,9 +249,6 @@ public static class PathnatyaMinOther {
   }
 
   public static void Run(uint keepPid) {
-    // The sweep is scheduled when we gain focus but only lands seconds later, once
-    // Add-Type has finished compiling. If the user switched away in the meantime,
-    // minimising now would yank back the window they just picked, so bail instead.
     uint foregroundPid;
     GetWindowThreadProcessId(GetForegroundWindow(), out foregroundPid);
     if (foregroundPid != keepPid) return;
@@ -264,7 +278,6 @@ public static class PathnatyaMinOther {
 }
 
 async function hideOthersMac(keepPid: number): Promise<void> {
-  // Equivalent to macOS "Hide Others": leave our app visible, hide every other foreground app.
   const script = `
 tell application "System Events"
   try

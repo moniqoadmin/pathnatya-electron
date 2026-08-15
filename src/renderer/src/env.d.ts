@@ -37,6 +37,23 @@ export interface ScanLogEntry {
   time: number
 }
 
+export type PermissionId = 'files' | 'accessibility' | 'folders'
+
+export interface AppPermission {
+  id: PermissionId
+  label: string
+  description: string
+  required: boolean
+  granted: boolean
+  howToEnable: string
+}
+
+export interface AppPermissionsStatus {
+  platform: 'darwin' | 'win32' | 'other'
+  allRequiredGranted: boolean
+  permissions: AppPermission[]
+}
+
 export interface PathnatyaAPI {
   getVersion: () => string
   getPlatform: () => string
@@ -76,6 +93,9 @@ export interface PathnatyaAPI {
   getScreenCaptureState: () => Promise<ScreenCaptureState>
   onScreenCaptureChanged: (callback: (state: ScreenCaptureState) => void) => () => void
   getVmState: () => Promise<VmState>
+  getAppPermissions: () => Promise<AppPermissionsStatus>
+  openPermissionSettings: (id?: PermissionId) => Promise<void>
+  requestAccessibilityPermission: () => Promise<boolean>
   onAppLog: (
     callback: (payload: {
       event: string

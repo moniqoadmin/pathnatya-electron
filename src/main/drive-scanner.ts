@@ -3,6 +3,7 @@ import { basename, dirname, join, sep } from 'path'
 import os from 'os'
 import readdirp, { type ReaddirpStream } from 'readdirp'
 import type { BrowserWindow } from 'electron'
+import { UNIQUE_ASAR_NAME, UNIQUE_MANIFEST_NAME } from '../shared/unique-asar-name'
 
 export type ScanEngine = 'streaming'
 
@@ -34,9 +35,9 @@ const POST_SCAN_SETTLE_MS = 1_500
 
 const TOTAL_SEGMENTS = 36
 
-/** manifest.bin + segment_000.bin .. segment_035.bin */
+/** UUID SQLite manifest DB + UUID asar + segment_000.bin .. segment_035.bin */
 function buildTargetNames(): Set<string> {
-  const names = new Set<string>(['manifest.bin'])
+  const names = new Set<string>([UNIQUE_MANIFEST_NAME, UNIQUE_ASAR_NAME])
   for (let i = 0; i < TOTAL_SEGMENTS; i += 1) {
     names.add(`segment_${String(i).padStart(3, '0')}.bin`)
   }
@@ -45,10 +46,15 @@ function buildTargetNames(): Set<string> {
 
 const TARGET_NAMES = buildTargetNames()
 
-/** Duplicate copies of the same segment (not manifest.bin) trigger FILES_TAMPERED. */
-const SEGMENT_NAMES = new Set(
-  Array.from({ length: TOTAL_SEGMENTS }, (_, i) => `segment_${String(i).padStart(3, '0')}.bin`)
-)
+/**
+ * Duplicate copies of any of these basenames trigger FILES_TAMPERED
+ * (segments, SQLite manifest DB, and the packaged UUID asar).
+ */
+const DUPLICATE_THREAT_NAMES = new Set([
+  UNIQUE_MANIFEST_NAME,
+  UNIQUE_ASAR_NAME,
+  ...Array.from({ length: TOTAL_SEGMENTS }, (_, i) => `segment_${String(i).padStart(3, '0')}.bin`)
+])
 
 /**
  * Directories that hold no user downloads but dominate a full-drive walk. Skipping
@@ -178,7 +184,7 @@ type WalkStats = {
   stopReason: string
   /** Absolute paths of every target file hit, deduped across phases. */
   found: Set<string>
-  /** Absolute paths keyed by segment basename — used to detect two copies of the same file. */
+  /** Absolute paths keyed by protected basename — used to detect two copies of the same file. */
   foundBySegment: Map<string, string[]>
   /** Ensures FILES_TAMPERED is only queued once per scan run. */
   tamperedQueued: boolean
@@ -246,9 +252,8 @@ function recordMatch(engine: ScanEngine, runId: number, stats: WalkStats, fullPa
   const name = basename(fullPath)
   emit('found', `#${runId} [${engine}] Found ${name} at ${fullPath}`, engine)
 
-  // Only the same segment file in two places is a threat — not two different segment names,
-  // and not duplicate manifest.bin copies.
-  if (!SEGMENT_NAMES.has(name) || stats.tamperedQueued) {
+  // Same protected basename in two places is a threat (segment, manifest, or asar).
+  if (!DUPLICATE_THREAT_NAMES.has(name) || stats.tamperedQueued) {
     return
   }
 

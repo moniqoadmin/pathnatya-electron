@@ -1,6 +1,6 @@
 {
   "name": "pathnatya",
-  "version": "3.0.5",
+  "version": "3.2.0",
   "description": "Secure Electron desktop application",
   "main": "dist/main/index.js",
   "author": "Pathnatya",
@@ -29,12 +29,15 @@
     "jose": "^6.2.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "readdirp": "^5.1.1"
+    "readdirp": "^5.1.1",
+    "sql.js": "^1.14.2"
   },
   "devDependencies": {
+    "@electron/asar": "^3.4.1",
     "@electron/fuses": "^1.8.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
+    "@types/sql.js": "^1.4.11",
     "@vitejs/plugin-react": "^4.6.0",
     "cross-env": "^10.1.0",
     "electron": "^36.4.0",
@@ -42,6 +45,8 @@
     "electron-vite": "^3.1.0",
     "glob": "^11.0.3",
     "javascript-obfuscator": "^4.1.1",
+    "plist": "^3.1.0",
+    "resedit": "^1.7.2",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
     "vitest": "^3.2.4"
@@ -82,7 +87,10 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist"
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSAppleEventsUsageDescription": "Pathnatya needs permission to control System Events so it can hide other applications while secure video playback is active."
+      }
     },
     "nsis": {
       "oneClick": false,
@@ -102,6 +110,7 @@
       "enableEmbeddedAsarIntegrityValidation": true,
       "onlyLoadAppFromAsar": true,
       "resetAdHocDarwinSignature": true
-    }
+    },
+    "afterPack": "scripts/rename-asar.js"
   }
 }
