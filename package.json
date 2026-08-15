@@ -80,7 +80,10 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist"
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSAppleEventsUsageDescription": "Pathnatya needs permission to control System Events so it can hide other applications while secure video playback is active."
+      }
     },
     "nsis": {
       "oneClick": false,
