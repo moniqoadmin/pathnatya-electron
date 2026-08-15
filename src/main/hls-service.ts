@@ -2,6 +2,23 @@ import { createDecipheriv } from 'crypto'
 import { net } from 'electron'
 import { getHlsKey } from './hls-key'
 import {
+  beginMemoryDownload,
+  cancelMemoryDownload,
+  clearMemoryVideo,
+  endMemoryDownload,
+  getMemoryVideoPackage,
+  getMemoryVideoStatus,
+  hasMemoryVideo,
+  isMemoryDownloadActive,
+  isMemoryDownloadCancelled,
+  markMemorySegmentDownloaded,
+  readMemorySegment,
+  sealMemorySegment,
+  setMemoryVideoPackage,
+  type MemoryVideoPackage,
+  type MemoryVideoStatus
+} from './hls-memory'
+import {
   OFFLINE_VIDEO_TTL_MS,
   assertOfflinePackageIntegrity,
   assertOfflineSegmentIntegrity,
@@ -55,11 +72,13 @@ export interface PreparedHls {
   expiresAt: string | null
 }
 
-export type HlsDownloadProgress = OfflineVideoStatus
+export type HlsDownloadProgress = OfflineVideoStatus | MemoryVideoStatus
 
 let segments: HlsSegment[] = []
 let rewrittenPlaylist: string | null = null
 let offlineMode = false
+/** True when segments are served from the process-lifetime RAM package. */
+let memoryMode = false
 let offlineExpiresAt: string | null = null
 
 const plaintextCache = new Map<number, Buffer>()
@@ -266,7 +285,7 @@ function cachePlaintext(index: number, plaintext: Buffer): void {
 
 function applyResolvedPlaylist(
   resolved: { segments: HlsSegment[]; rewritten: string },
-  options: { fromOffline: boolean; expiresAt: string | null }
+  options: { fromOffline: boolean; fromMemory?: boolean; expiresAt: string | null }
 ): PreparedHls {
   for (const buffer of plaintextCache.values()) {
     wipe(buffer)
@@ -277,6 +296,7 @@ function applyResolvedPlaylist(
   segments = resolved.segments
   rewrittenPlaylist = resolved.rewritten
   offlineMode = options.fromOffline
+  memoryMode = Boolean(options.fromMemory)
   offlineExpiresAt = options.expiresAt
 
   return {
@@ -293,6 +313,15 @@ function segmentsFromOfflineManifest(manifest: OfflineVideoManifest): HlsSegment
     index: segment.index,
     // Offline segments are never fetched from the network.
     url: `offline://${segment.file}`,
+    durationSeconds: segment.durationSeconds,
+    iv: segment.iv ? Buffer.from(segment.iv, 'hex') : null
+  }))
+}
+
+function segmentsFromMemoryPackage(memory: MemoryVideoPackage): HlsSegment[] {
+  return memory.segments.map((segment) => ({
+    index: segment.index,
+    url: `memory://${segment.index}`,
     durationSeconds: segment.durationSeconds,
     iv: segment.iv ? Buffer.from(segment.iv, 'hex') : null
   }))
@@ -345,6 +374,7 @@ async function decryptPayload(index: number, payload: Buffer, iv: Buffer | null)
 }
 
 export async function prepareHlsVideo(sourceUrl = DEFAULT_HLS_SOURCE): Promise<PreparedHls> {
+  // Clears playback buffers only — the RAM package survives logout / re-prepare.
   clearPreparedHls()
 
   // Fail fast with a clear message if the session key was never installed.
@@ -368,7 +398,22 @@ export async function prepareHlsVideo(sourceUrl = DEFAULT_HLS_SOURCE): Promise<P
     )
   }
 
-  console.log('[hls-offline] no offline package — loading online source')
+  const memory = getMemoryVideoPackage()
+  if (memory && hasMemoryVideo()) {
+    console.log('[hls-memory] preparing playback from in-memory package', {
+      segmentCount: memory.segmentCount
+    })
+
+    return applyResolvedPlaylist(
+      {
+        segments: segmentsFromMemoryPackage(memory),
+        rewritten: memory.rewrittenPlaylist
+      },
+      { fromOffline: false, fromMemory: true, expiresAt: null }
+    )
+  }
+
+  console.log('[hls-offline] no offline or memory package — loading online source')
 
   try {
     const remote = await resolveRemotePlaylist(sourceUrl)
@@ -412,7 +457,12 @@ export async function getDecryptedSegment(index: number): Promise<Buffer> {
     // Only read from disk once the package is complete; an in-progress download
     // leaves partially written files that would decrypt to garbage.
     const useOffline = offlineMode || segment.url.startsWith('offline://')
-    let payload = useOffline ? await readOfflineSegment(index) : null
+    const useMemory = memoryMode || segment.url.startsWith('memory://')
+    let payload = useOffline
+      ? await readOfflineSegment(index)
+      : useMemory
+        ? await readMemorySegment(index)
+        : null
 
     if (!payload) {
       if (useOffline) {
@@ -420,8 +470,12 @@ export async function getDecryptedSegment(index: number): Promise<Buffer> {
         throw new Error('2637 : Something went wrong. Please contact admin.')
       }
 
+      if (useMemory) {
+        throw new Error('4821 : In-memory video segment is missing. Please sign in again.')
+      }
+
       payload = await fetchWithRetries(segment.url)
-    } else {
+    } else if (useOffline) {
       await assertOfflineSegmentIntegrity(index, payload)
     }
 
@@ -534,6 +588,109 @@ export function cancelHlsOfflineDownload(): void {
   cancelOfflineDownload()
 }
 
+/**
+ * Download the full HLS package into main-process RAM only (online accounts).
+ * Survives logout until the process exits or clearMemoryHls() is called.
+ */
+export async function downloadHlsVideoToMemory(
+  onProgress: (progress: MemoryVideoStatus) => void,
+  sourceUrl = DEFAULT_HLS_SOURCE
+): Promise<MemoryVideoStatus> {
+  if (isMemoryDownloadActive() || isDownloadActive()) {
+    throw new Error('938 : A download is already in progress.')
+  }
+
+  getHlsKey()
+
+  const remote = await resolveRemotePlaylist(sourceUrl)
+  beginMemoryDownload(remote.segments.length)
+
+  const emit = (): void => {
+    onProgress(getMemoryVideoStatus())
+  }
+
+  emit()
+
+  try {
+    // Drop any prior RAM package so a cancelled download cannot leave a partial valid state.
+    clearMemoryVideo()
+
+    const payloads: Buffer[] = new Array(remote.segments.length)
+
+    const wipePayloads = (): void => {
+      for (const payload of payloads) {
+        if (payload) {
+          payload.fill(0)
+        }
+      }
+    }
+
+    for (const segment of remote.segments) {
+      if (isMemoryDownloadCancelled()) {
+        wipePayloads()
+        clearMemoryVideo()
+        throw new Error('1472 : Download cancelled.')
+      }
+
+      // Same seal as offline writeOfflineSegment — keep sealed bytes in RAM only.
+      const cdnPayload = await fetchWithRetries(segment.url)
+      const sealed = await sealMemorySegment(cdnPayload)
+      payloads[segment.index] = sealed
+      markMemorySegmentDownloaded(sealed.length)
+      emit()
+    }
+
+    if (isMemoryDownloadCancelled()) {
+      wipePayloads()
+      clearMemoryVideo()
+      throw new Error('625 : Download cancelled.')
+    }
+
+    const downloadedAt = new Date().toISOString()
+    const memoryPackage: MemoryVideoPackage = {
+      sourceUrl: remote.sourceUrl,
+      downloadedAt: downloadedAt,
+      totalDurationSeconds: remote.segments.reduce(
+        (total, segment) => total + segment.durationSeconds,
+        0
+      ),
+      segmentCount: remote.segments.length,
+      rewrittenPlaylist: remote.rewritten,
+      segments: remote.segments.map((segment) => ({
+        index: segment.index,
+        durationSeconds: segment.durationSeconds,
+        iv: segment.iv ? segment.iv.toString('hex') : null
+      })),
+      payloads
+    }
+
+    setMemoryVideoPackage(memoryPackage)
+
+    applyResolvedPlaylist(
+      {
+        segments: segmentsFromMemoryPackage(memoryPackage),
+        rewritten: memoryPackage.rewrittenPlaylist
+      },
+      { fromOffline: false, fromMemory: true, expiresAt: null }
+    )
+
+    return getMemoryVideoStatus()
+  } catch (error) {
+    if (isMemoryDownloadCancelled()) {
+      clearMemoryVideo()
+    }
+    throw error
+  } finally {
+    endMemoryDownload()
+    emit()
+  }
+}
+
+export function cancelHlsMemoryDownload(): void {
+  cancelMemoryDownload()
+}
+
+/** Wipe playback state only — keeps the in-memory video package across logout. */
 export function clearPreparedHls(): void {
   for (const buffer of plaintextCache.values()) {
     wipe(buffer)
@@ -543,7 +700,14 @@ export function clearPreparedHls(): void {
   segments = []
   rewrittenPlaylist = null
   offlineMode = false
+  memoryMode = false
   offlineExpiresAt = null
 }
 
-export { getOfflineVideoStatus, deleteOfflineVideo, currentDownloadProgress }
+/** Wipe the process-lifetime RAM package (quit, force logout, admin reset). */
+export function clearMemoryHls(): void {
+  cancelMemoryDownload()
+  clearMemoryVideo()
+}
+
+export { getOfflineVideoStatus, deleteOfflineVideo, currentDownloadProgress, getMemoryVideoStatus }

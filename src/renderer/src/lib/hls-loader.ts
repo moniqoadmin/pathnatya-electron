@@ -41,8 +41,16 @@ export async function getHlsOfflineStatus() {
   return window.pathnatya.getHlsOfflineStatus()
 }
 
+export async function getHlsMemoryStatus() {
+  return window.pathnatya.getHlsMemoryStatus()
+}
+
 export async function downloadHlsVideo(sourceUrl?: string) {
   return window.pathnatya.downloadHlsVideo(sourceUrl)
+}
+
+export async function downloadHlsVideoMemory(sourceUrl?: string) {
+  return window.pathnatya.downloadHlsVideoMemory(sourceUrl)
 }
 
 export async function cancelHlsDownload() {
@@ -59,12 +67,17 @@ export async function clearHlsOfflineVideo() {
   return window.pathnatya.clearHlsOfflineVideo()
 }
 
+export function clearHlsMemoryVideo(): void {
+  void window.pathnatya.clearHlsMemoryVideo()
+}
+
 export function onHlsDownloadProgress(
   callback: (progress: Awaited<ReturnType<typeof getHlsOfflineStatus>>) => void
 ) {
   return window.pathnatya.onHlsDownloadProgress(callback)
 }
 
+/** Clears prepared playback buffers only — keeps the in-memory video package. */
 export function clearHlsPlayback(): void {
   void window.pathnatya.clearHlsVideo()
 }

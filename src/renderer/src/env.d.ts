@@ -78,9 +78,12 @@ export interface PathnatyaAPI {
   }>
   clearHlsVideo: () => Promise<void>
   getHlsOfflineStatus: () => Promise<HlsOfflineStatus>
+  getHlsMemoryStatus: () => Promise<HlsOfflineStatus>
   downloadHlsVideo: (sourceUrl?: string) => Promise<HlsOfflineStatus>
+  downloadHlsVideoMemory: (sourceUrl?: string) => Promise<HlsOfflineStatus>
   cancelHlsDownload: () => Promise<void>
   clearHlsOfflineVideo: () => Promise<void>
+  clearHlsMemoryVideo: () => Promise<void>
   onHlsDownloadProgress: (callback: (progress: HlsOfflineStatus) => void) => () => void
   saveOfflineSession: (payload: {
     phoneNumber: string

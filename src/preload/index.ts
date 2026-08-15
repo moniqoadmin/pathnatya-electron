@@ -75,10 +75,15 @@ const API = {
   clearHlsVideo: () => ipcRenderer.invoke('clear-hls-video') as Promise<void>,
   getHlsOfflineStatus: () =>
     ipcRenderer.invoke('get-hls-offline-status') as Promise<HlsOfflineStatus>,
+  getHlsMemoryStatus: () =>
+    ipcRenderer.invoke('get-hls-memory-status') as Promise<HlsOfflineStatus>,
   downloadHlsVideo: (sourceUrl?: string) =>
     ipcRenderer.invoke('download-hls-video', sourceUrl) as Promise<HlsOfflineStatus>,
+  downloadHlsVideoMemory: (sourceUrl?: string) =>
+    ipcRenderer.invoke('download-hls-video-memory', sourceUrl) as Promise<HlsOfflineStatus>,
   cancelHlsDownload: () => ipcRenderer.invoke('cancel-hls-download') as Promise<void>,
   clearHlsOfflineVideo: () => ipcRenderer.invoke('clear-hls-offline-video') as Promise<void>,
+  clearHlsMemoryVideo: () => ipcRenderer.invoke('clear-hls-memory-video') as Promise<void>,
   onHlsDownloadProgress: (callback: (progress: HlsOfflineStatus) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, progress: HlsOfflineStatus): void => {
       callback(progress)

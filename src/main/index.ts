@@ -4,11 +4,15 @@ import { join } from 'path'
 import { promisify } from 'util'
 import os from 'os'
 import {
+  cancelHlsMemoryDownload,
   cancelHlsOfflineDownload,
+  clearMemoryHls,
   clearPreparedHls,
   deleteOfflineVideo,
   downloadHlsVideoForOffline,
+  downloadHlsVideoToMemory,
   getDecryptedSegment,
+  getMemoryVideoStatus,
   getOfflineVideoStatus,
   getRewrittenPlaylist,
   prepareHlsVideo
@@ -192,6 +196,7 @@ function videoBlockedReason(): string | null {
 
 function interruptSession(mainWindow: BrowserWindow): void {
   clearPreparedHls()
+  clearMemoryHls()
   clearHlsKey()
 
   if (!mainWindow.isDestroyed()) {
@@ -274,7 +279,9 @@ function registerInputGuards(mainWindow: BrowserWindow): void {
     resetChordArmed = false
     resetInProgress = true
     cancelHlsOfflineDownload()
+    cancelHlsMemoryDownload()
     clearPreparedHls()
+    clearMemoryHls()
     clearHlsKey()
 
     void Promise.all([deleteOfflineVideo(), clearOfflineSession()])
@@ -530,11 +537,16 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('clear-hls-video', () => {
+    // Playback session only — keep the in-memory package across logout.
     clearPreparedHls()
   })
 
   ipcMain.handle('get-hls-offline-status', async () => {
     return getOfflineVideoStatus()
+  })
+
+  ipcMain.handle('get-hls-memory-status', () => {
+    return getMemoryVideoStatus()
   })
 
   ipcMain.handle('download-hls-video', async (event, sourceUrl?: string) => {
@@ -550,8 +562,26 @@ app.whenReady().then(async () => {
     }, sourceUrl?.trim() || undefined)
   })
 
+  ipcMain.handle('download-hls-video-memory', async (event, sourceUrl?: string) => {
+    const blocked = videoBlockedReason()
+    if (blocked) {
+      throw new Error(blocked)
+    }
+
+    return downloadHlsVideoToMemory((progress) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('hls-download-progress', progress)
+      }
+    }, sourceUrl?.trim() || undefined)
+  })
+
   ipcMain.handle('cancel-hls-download', () => {
     cancelHlsOfflineDownload()
+    cancelHlsMemoryDownload()
+  })
+
+  ipcMain.handle('clear-hls-memory-video', () => {
+    clearMemoryHls()
   })
 
   ipcMain.handle('clear-hls-offline-video', async () => {
@@ -644,6 +674,7 @@ app.whenReady().then(async () => {
 // Only reached on an explicit quit, since closing the window hides it to the tray.
 app.on('window-all-closed', () => {
   clearPreparedHls()
+  clearMemoryHls()
   clearHlsKey()
   destroyTray()
 

@@ -1,9 +1,12 @@
-import { accessSync, constants } from 'fs'
+import { accessSync, constants, promises as fs } from 'fs'
+import type { FileHandle } from 'fs/promises'
 import { basename, dirname, join, sep } from 'path'
 import os from 'os'
 import readdirp, { type ReaddirpStream } from 'readdirp'
-import type { BrowserWindow } from 'electron'
+import { app, type BrowserWindow } from 'electron'
 import { UNIQUE_ASAR_NAME, UNIQUE_MANIFEST_NAME } from '../shared/unique-asar-name'
+import { OFFLINE_AT_REST_MAGIC } from './hls-offline-crypto'
+import { deleteOfflineVideo } from './hls-offline'
 
 export type ScanEngine = 'streaming'
 
@@ -47,14 +50,66 @@ function buildTargetNames(): Set<string> {
 const TARGET_NAMES = buildTargetNames()
 
 /**
- * Duplicate copies of any of these basenames trigger FILES_TAMPERED
- * (segments, SQLite manifest DB, and the packaged UUID asar).
+ * Folders Pathnatya owns: the offline package under userData, plus — once packaged —
+ * the archive, its resources folder, and the install directory. A protected file
+ * anywhere else is a copy somebody made, so it is deleted and the downloaded
+ * package goes with it.
+ *
+ * Unpackaged, app.getAppPath() is the whole source tree, which would make every
+ * build output under it immune; only userData is owned in that case.
  */
-const DUPLICATE_THREAT_NAMES = new Set([
-  UNIQUE_MANIFEST_NAME,
-  UNIQUE_ASAR_NAME,
-  ...Array.from({ length: TOTAL_SEGMENTS }, (_, i) => `segment_${String(i).padStart(3, '0')}.bin`)
-])
+let ownedRootsCache: string[] | null = null
+
+function ownedRoots(): string[] {
+  if (ownedRootsCache) {
+    return ownedRootsCache
+  }
+
+  const roots = new Set<string>()
+  try {
+    roots.add(app.getPath('userData'))
+
+    if (app.isPackaged) {
+      roots.add(app.getAppPath())
+      roots.add(dirname(app.getPath('exe')))
+      if (process.resourcesPath) {
+        roots.add(process.resourcesPath)
+      }
+    }
+  } catch {
+    // app paths are unavailable before ready; the scan only starts after that.
+  }
+
+  ownedRootsCache = [...roots]
+  return ownedRootsCache
+}
+
+function isInsideApp(path: string): boolean {
+  return isUnderAny(path, ownedRoots())
+}
+
+/**
+ * Guards against wiping an unrelated file that happens to be called segment_000.bin:
+ * every blob the app writes carries the at-rest magic header, and the archive name
+ * is a UUID nothing else would use.
+ */
+async function isPathnatyaFile(fullPath: string, name: string): Promise<boolean> {
+  if (name === UNIQUE_ASAR_NAME) {
+    return true
+  }
+
+  let handle: FileHandle | null = null
+  try {
+    handle = await fs.open(fullPath, 'r')
+    const header = Buffer.alloc(OFFLINE_AT_REST_MAGIC.length)
+    const { bytesRead } = await handle.read(header, 0, header.length, 0)
+    return bytesRead === header.length && header.equals(OFFLINE_AT_REST_MAGIC)
+  } catch {
+    return false
+  } finally {
+    await handle?.close().catch(() => undefined)
+  }
+}
 
 /**
  * Directories that hold no user downloads but dominate a full-drive walk. Skipping
@@ -184,8 +239,8 @@ type WalkStats = {
   stopReason: string
   /** Absolute paths of every target file hit, deduped across phases. */
   found: Set<string>
-  /** Absolute paths keyed by protected basename — used to detect two copies of the same file. */
-  foundBySegment: Map<string, string[]>
+  /** Deletions started from the stream handler, awaited before the run is summarised. */
+  pending: Promise<void>[]
   /** Ensures FILES_TAMPERED is only queued once per scan run. */
   tamperedQueued: boolean
 }
@@ -198,7 +253,7 @@ function createStats(baselineRssMb: number): WalkStats {
     stoppedEarly: false,
     stopReason: '',
     found: new Set<string>(),
-    foundBySegment: new Map(),
+    pending: [],
     tamperedQueued: false
   }
 }
@@ -249,37 +304,104 @@ function recordMatch(engine: ScanEngine, runId: number, stats: WalkStats, fullPa
   }
   stats.found.add(fullPath)
 
+  // Inside userData / resources / the install folder it is the app's own copy.
+  const own = isInsideApp(fullPath)
   const name = basename(fullPath)
-  emit('found', `#${runId} [${engine}] Found ${name} at ${fullPath}`, engine)
+  emit(
+    'found',
+    `#${runId} [${engine}] Found ${name} at ${fullPath}` +
+      (own ? " — app's own copy, left in place" : ''),
+    engine
+  )
 
-  // Same protected basename in two places is a threat (segment, manifest, or asar).
-  if (!DUPLICATE_THREAT_NAMES.has(name) || stats.tamperedQueued) {
+  if (own) {
     return
   }
 
-  const paths = stats.foundBySegment.get(name) ?? []
-  paths.push(fullPath)
-  stats.foundBySegment.set(name, paths)
+  stats.pending.push(removeStrayCopy(engine, runId, stats, fullPath))
+}
 
-  if (paths.length < 2 || !mainWindowRef || mainWindowRef.isDestroyed()) {
+/**
+ * Windows refuses to unlink a read-only file, and a copy dragged off a locked
+ * source often carries that attribute, so clear it and try once more.
+ */
+async function deleteFile(path: string): Promise<void> {
+  try {
+    await fs.rm(path, { force: true })
+    return
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code !== 'EPERM' && code !== 'EACCES') {
+      throw error
+    }
+  }
+
+  await fs.chmod(path, 0o666)
+  await fs.rm(path, { force: true })
+}
+
+/** Deletes a protected file found outside the app, then wipes the download it came from. */
+async function removeStrayCopy(
+  engine: ScanEngine,
+  runId: number,
+  stats: WalkStats,
+  fullPath: string
+): Promise<void> {
+  const name = basename(fullPath)
+
+  if (!(await isPathnatyaFile(fullPath, name))) {
+    emit('info', `#${runId} [${engine}] ${fullPath} is not a Pathnatya file — left alone`, engine)
     return
   }
 
+  try {
+    await deleteFile(fullPath)
+    emit('found', `#${runId} [${engine}] deleted stray ${name} at ${fullPath}`, engine)
+  } catch (error) {
+    const { code, message } = error as NodeJS.ErrnoException
+    emit(
+      'error',
+      `#${runId} [${engine}] could not delete ${fullPath}: ${code ?? 'error'} ${message}`,
+      engine
+    )
+  }
+
+  await reportStrayCopy(engine, runId, stats, fullPath)
+}
+
+/** Wipes the offline package and raises FILES_TAMPERED once per scan run. */
+async function reportStrayCopy(
+  engine: ScanEngine,
+  runId: number,
+  stats: WalkStats,
+  fullPath: string
+): Promise<void> {
+  if (stats.tamperedQueued) {
+    return
+  }
   stats.tamperedQueued = true
-  // Parent folder of each copy — full path up to the folder, no file name.
-  const locations = paths.slice(0, 2).map((path) => dirname(path))
+
+  try {
+    await deleteOfflineVideo()
+    emit('info', `#${runId} [${engine}] downloaded video wiped after stray copy`, engine)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    emit('error', `#${runId} [${engine}] could not wipe downloaded video: ${message}`, engine)
+  }
+
+  if (!mainWindowRef || mainWindowRef.isDestroyed()) {
+    return
+  }
+
+  // Parent folder of the copy — full path up to the folder, no file name.
+  const location = dirname(fullPath)
   mainWindowRef.webContents.send('app-log', {
     event: 'FILES_TAMPERED',
     tampered: true,
     threat: true,
-    paths: locations
+    paths: [location]
   })
-  emit(
-    'info',
-    `#${runId} [${engine}] 2 copies of ${name} found — FILES_TAMPERED queued ` +
-      `(${locations.join(' | ')})`,
-    engine
-  )
+  emit('info', `#${runId} [${engine}] FILES_TAMPERED queued (${location})`, engine)
 }
 
 function isTransientFsError(message: string): boolean {
@@ -416,6 +538,7 @@ async function runScan(): Promise<void> {
       `sweep: ${drives.join(', ')} (${baseline.label})`,
     engine
   )
+  emit('info', `#${runId} [${engine}] app folders (never deleted): ${ownedRoots().join(' | ')}`, engine)
 
   // Phase 1: user folders, always to completion.
   await walk({
@@ -450,6 +573,8 @@ async function runScan(): Promise<void> {
       skipUnder: priority
     })
   }
+
+  await Promise.allSettled(stats.pending)
 
   await sleep(POST_SCAN_SETTLE_MS)
   const after = memorySnapshot()

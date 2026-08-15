@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Account } from './api/accounts'
 import { postAppLog, reportAppLog, type AppLogEvent } from './api/logs'
 import { startConnectivityWatch } from './lib/connectivity'
-import { clearHlsPlayback } from './lib/hls-loader'
+import { clearHlsMemoryVideo, clearHlsPlayback } from './lib/hls-loader'
 import { clearAllStorage } from './lib/storage'
 import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
@@ -100,6 +100,7 @@ export default function App() {
   useEffect(() => {
     return window.pathnatya.onResetToLogin(() => {
       clearHlsPlayback()
+      clearHlsMemoryVideo()
       clearAllStorage()
       setAccount(null)
       setPhoneNumber('')
@@ -115,6 +116,7 @@ export default function App() {
 
   const forceLogout = useCallback(() => {
     clearHlsPlayback()
+    clearHlsMemoryVideo()
     clearAllStorage()
     setAccount(null)
     setPhoneNumber('')
@@ -128,7 +130,7 @@ export default function App() {
       }
 
       if (event === 'FILES_TAMPERED') {
-        // Keeps the first reported pair so a later scan hit cannot restart the countdown.
+        // Keeps the first reported location so a later scan hit cannot restart the countdown.
         const locations =
           paths && paths.length > 0 ? paths : path ? [path] : []
         setTamperedLocations((current) => current ?? locations)
@@ -155,7 +157,7 @@ export default function App() {
     })
   }, [])
 
-  // The warning names both folder locations, then the session ends whether or not the copy was deleted.
+  // The warning names the folder the copy was found in, then the session ends.
   useEffect(() => {
     if (tamperedLocations === null) {
       return
@@ -172,6 +174,8 @@ export default function App() {
   }, [tamperedLocations, forceLogout])
 
   const handleLogout = useCallback(() => {
+    // Keep the in-memory video package; only drop the active playback session.
+    clearHlsPlayback()
     setAccount(null)
     setPhoneNumber('')
     setPage('landing')
@@ -272,24 +276,27 @@ export default function App() {
             .getClockSkewState()
             .then((clock) => {
               clockMismatchedRef.current = clock.mismatched
-              const canPrepare =
-                loggedInAccount.isOffline &&
-                !virtualMachineRef.current &&
-                !clock.mismatched
+              // Offline → disk package; online → full video into RAM. Skip prepare
+              // only when video itself is blocked (VM / clock).
+              const canPrepare = !virtualMachineRef.current && !clock.mismatched
               setPage(canPrepare ? 'preparing' : 'video')
             })
             .catch(() => {
               const canPrepare =
-                loggedInAccount.isOffline &&
-                !virtualMachineRef.current &&
-                !clockMismatchedRef.current
+                !virtualMachineRef.current && !clockMismatchedRef.current
               setPage(canPrepare ? 'preparing' : 'video')
             })
         }}
       />
     )
   } else if (page === 'preparing' && account) {
-    content = <PreparingVideoPage onReady={handleVideoReady} onLogout={handleLogout} />
+    content = (
+      <PreparingVideoPage
+        storage={account.isOffline ? 'disk' : 'memory'}
+        onReady={handleVideoReady}
+        onLogout={handleLogout}
+      />
+    )
   } else if (account) {
     content = (
       <VideoLoaderPage

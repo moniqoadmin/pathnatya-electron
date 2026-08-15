@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 interface TamperWarningProps {
-  /** Parent folder paths of both duplicate copies (no file names). */
+  /** Parent folder paths where the copies were found (no file names). */
   locations: string[]
   seconds: number
 }
@@ -33,11 +33,10 @@ export default function TamperWarning({ locations, seconds }: TamperWarningProps
     >
       <div className="tamper-warning-card">
         <h2 id="tamper-warning-title" className="tamper-warning-title">
-          6924 : Duplicate app instance detected
+        6924 : Duplicate app instance detected
         </h2>
         <p className="tamper-warning-text">
-          Two copies of the same protected segment were found on this device. Please delete the
-          extra copy from one of the folders below before signing in again.
+        A duplicate app instance has been detected. Please sign out and sign in again.
         </p>
         <ul className="tamper-warning-paths">
           {shown.map((location, index) => (

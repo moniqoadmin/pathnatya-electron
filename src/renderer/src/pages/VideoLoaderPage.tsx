@@ -622,6 +622,7 @@ export default function VideoLoaderPage({
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
+      // Session expiry logs out but keeps the in-memory video for the next login.
       clearHlsPlayback()
       clearAllStorage()
       onLogout()
@@ -648,6 +649,7 @@ export default function VideoLoaderPage({
 
   useEffect(() => {
     return () => {
+      // Detach playback only — do not wipe the RAM package on leave/logout.
       clearHlsPlayback()
     }
   }, [])

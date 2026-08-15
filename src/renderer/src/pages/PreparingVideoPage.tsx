@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { reportAppLog } from '../api/logs'
 import OfflineToast from '../components/OfflineToast'
 import {
+  cancelHlsDownload,
   downloadHlsVideo,
+  downloadHlsVideoMemory,
+  getHlsMemoryStatus,
   getHlsOfflineStatus,
   isVideoFilesTamperedError,
   onHlsDownloadProgress,
@@ -12,6 +15,8 @@ import { isOffline } from '../lib/network'
 import { userError } from '../lib/user-error'
 
 interface PreparingVideoPageProps {
+  /** Disk package for offline accounts; RAM-only for online accounts. */
+  storage: 'disk' | 'memory'
   onReady: () => void
   onLogout: () => void
 }
@@ -32,7 +37,11 @@ function stageMessage(percent: number): string {
   return 'Finishing up...'
 }
 
-export default function PreparingVideoPage({ onReady, onLogout }: PreparingVideoPageProps) {
+export default function PreparingVideoPage({
+  storage,
+  onReady,
+  onLogout
+}: PreparingVideoPageProps) {
   const [percent, setPercent] = useState(0)
   const [error, setError] = useState('')
   const [tampered, setTampered] = useState(false)
@@ -77,12 +86,13 @@ export default function PreparingVideoPage({ onReady, onLogout }: PreparingVideo
 
     void (async () => {
       try {
-        const status = await getHlsOfflineStatus()
+        const status =
+          storage === 'memory' ? await getHlsMemoryStatus() : await getHlsOfflineStatus()
         if (cancelled) {
           return
         }
 
-        // A returning user already has the video on this device, so skip ahead.
+        // Returning user already has the video (disk or still in RAM after logout).
         if (status.available && !status.downloading) {
           finish(0)
           return
@@ -104,7 +114,8 @@ export default function PreparingVideoPage({ onReady, onLogout }: PreparingVideo
           return
         }
 
-        const result = await downloadHlsVideo()
+        const result =
+          storage === 'memory' ? await downloadHlsVideoMemory() : await downloadHlsVideo()
         if (cancelled) {
           return
         }
@@ -127,7 +138,7 @@ export default function PreparingVideoPage({ onReady, onLogout }: PreparingVideo
 
         // A locked/altered offline package blocks the main process from wiping it.
         // Treat as tampering: log it once and show the contact-admin message.
-        if (isVideoFilesTamperedError(caught)) {
+        if (storage === 'disk' && isVideoFilesTamperedError(caught)) {
           if (!tamperReportedRef.current) {
             tamperReportedRef.current = true
             reportAppLog('VIDEO_FILES_CHANGED', true)
@@ -151,7 +162,7 @@ export default function PreparingVideoPage({ onReady, onLogout }: PreparingVideo
       window.clearTimeout(holdTimeoutId)
       unsubscribe()
     }
-  }, [attempt, onReady])
+  }, [attempt, onReady, storage])
 
   function handleRetry(): void {
     readyRef.current = false
@@ -159,6 +170,12 @@ export default function PreparingVideoPage({ onReady, onLogout }: PreparingVideo
     setTampered(false)
     setPercent(0)
     setAttempt((value) => value + 1)
+  }
+
+  function handleLogoutClick(): void {
+    // Stop an in-flight prepare so logout does not leave a half-built package.
+    void cancelHlsDownload()
+    onLogout()
   }
 
   return (
@@ -170,7 +187,7 @@ export default function PreparingVideoPage({ onReady, onLogout }: PreparingVideo
           <p className="sanskrit-header">Jay Yogeshwar</p>
           <h1>Pathnatya 2026</h1>
         </div>
-        <button type="button" className="app-topbar-logout" onClick={onLogout}>
+        <button type="button" className="app-topbar-logout" onClick={handleLogoutClick}>
           Logout
         </button>
       </header>
