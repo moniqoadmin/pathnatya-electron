@@ -35,6 +35,7 @@ import { detectVirtualMachine, getVirtualMachineVerdict } from './vm-guard'
 import { minimizeOtherApps } from './minimize-others'
 import { createTray, destroyTray, hideWindowToTray, revealWindow } from './tray'
 import { startDriveScanLoop, stopDriveScanLoop } from './drive-scanner'
+import { startAsarWatch, stopAsarWatch } from './asar-watcher'
 import {
   cleanupPermissionProbe,
   getAppPermissionsStatus,
@@ -364,7 +365,19 @@ function createWindow(): void {
   })
 
   startScreenCaptureWatch(mainWindow)
+  startAsarWatch(mainWindow, (window, asarPath) => {
+    if (window.isDestroyed()) {
+      return
+    }
+    window.webContents.send('app-log', {
+      event: 'FILES_TAMPERED',
+      tampered: true,
+      threat: true,
+      paths: [asarPath]
+    })
+  })
   mainWindow.on('closed', () => {
+    stopAsarWatch()
     stopScreenCaptureWatch()
     stopDriveScanLoop()
     destroyTray()
