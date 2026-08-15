@@ -9,6 +9,7 @@ import {
   cancelOfflineDownload,
   currentDownloadProgress,
   deleteOfflineVideo,
+  deleteOfflineVideoUnlessOffline,
   endDownload,
   getOfflineVideoStatus,
   getValidOfflineManifest,
@@ -415,7 +416,7 @@ export async function getDecryptedSegment(index: number): Promise<Buffer> {
 
     if (!payload) {
       if (useOffline) {
-        await deleteOfflineVideo()
+        await deleteOfflineVideoUnlessOffline('offline segment unreadable')
         throw new Error('2637 : Something went wrong. Please contact admin.')
       }
 

@@ -1,4 +1,4 @@
-import { ipcMain, app, BrowserWindow, shell, protocol, session } from 'electron'
+import { ipcMain, app, BrowserWindow, shell, protocol, session, net } from 'electron'
 import { execFile } from 'child_process'
 import { join } from 'path'
 import { promisify } from 'util'
@@ -15,7 +15,7 @@ import {
 } from './hls-service'
 import { clearHlsKey, setHlsKey } from './hls-key'
 import { purgeExpiredOfflineVideo } from './hls-offline'
-import { getSystemMacAddress } from './device-mac'
+import { getKnownBindingMacs, getSystemMacAddress } from './device-mac'
 import { getRuntimeValueA, getRuntimeValueB } from './runtime-values'
 import {
   clearOfflineSession,
@@ -555,6 +555,13 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('clear-hls-offline-video', async () => {
+    // Offline logout / online-only account cleanup must not erase a package the
+    // user cannot re-download until they are back online.
+    if (net.isOnline() === false) {
+      console.log('[hls-offline] skip clear while offline')
+      return
+    }
+
     cancelHlsOfflineDownload()
     await deleteOfflineVideo()
   })
@@ -596,6 +603,10 @@ app.whenReady().then(async () => {
     console.warn(`[vm-guard] ${vm.vendor} detected — video playback is blocked`)
     await deleteOfflineVideo()
   }
+
+  // Record the MAC while an adapter is still up: once the machine goes offline the OS
+  // stops reporting it, and the offline video package is sealed against it.
+  await getKnownBindingMacs()
 
   console.log('runtime value A:', getRuntimeValueA())
   console.log('runtime value B:', getRuntimeValueB())

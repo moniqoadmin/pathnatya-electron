@@ -1,10 +1,17 @@
+import { getConnectivity } from './connectivity'
+
 const SPEED_PROBE_BYTES = 100_000
 const SPEED_PROBE_URL = `https://speed.cloudflare.com/__down?bytes=${SPEED_PROBE_BYTES}`
 
 /** Call this rather than reading `navigator.onLine` inline; repeated inline
  *  comparisons make the compiler narrow the property to a literal. */
 export function isOffline(): boolean {
-  return typeof navigator !== 'undefined' && navigator.onLine === false
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return true
+  }
+
+  // A link with no reachable server counts as offline for download/cleanup gating.
+  return getConnectivity() === 'offline'
 }
 
 export function isNetworkError(error: unknown): boolean {

@@ -8,6 +8,7 @@ import {
   onHlsDownloadProgress,
   VIDEO_FILES_TAMPERED_MESSAGE
 } from '../lib/hls-loader'
+import { isOffline } from '../lib/network'
 import { userError } from '../lib/user-error'
 
 interface PreparingVideoPageProps {
@@ -89,6 +90,17 @@ export default function PreparingVideoPage({ onReady, onLogout }: PreparingVideo
 
         setPercent(status.percent)
         if (status.downloading) {
+          return
+        }
+
+        // Offline and no usable package: do not start a download (and never wipe).
+        if (isOffline()) {
+          setError(
+            userError(
+              9372,
+              'We could not prepare your video. Check your internet connection and try again.'
+            )
+          )
           return
         }
 

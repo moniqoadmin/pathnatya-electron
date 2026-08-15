@@ -2,7 +2,12 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypt
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { app, safeStorage } from 'electron'
-import { getOfflineBindingMac } from './device-mac'
+import {
+  getHardwareBindingMacs,
+  getKnownBindingMacs,
+  getOfflineBindingMac,
+  rememberBindingMac
+} from './device-mac'
 
 /** Magic: PathNatya Offline Format */
 export const OFFLINE_AT_REST_MAGIC = Buffer.from('PNOF')
@@ -97,7 +102,7 @@ async function getOrCreateRawPackageKey(): Promise<Buffer> {
 
 async function getPackageKey(): Promise<{ key: Buffer; mac: string }> {
   const rawKey = await getOrCreateRawPackageKey()
-  const mac = getOfflineBindingMac()
+  const mac = await getOfflineBindingMac()
   return { key: bindKeyToMac(rawKey, mac), mac }
 }
 
@@ -157,26 +162,54 @@ export async function decryptAtRest(payload: Buffer): Promise<Buffer> {
   const tag = payload.subarray(payload.length - AUTH_TAG_LENGTH)
   const ciphertext = payload.subarray(nonceStart + NONCE_LENGTH, payload.length - AUTH_TAG_LENGTH)
 
-  const { key, mac } = await getPackageKey()
-  const decipher = createDecipheriv('aes-256-gcm', key, nonce)
-  decipher.setAuthTag(tag)
+  const rawKey = await getOrCreateRawPackageKey()
 
-  try {
-    const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()])
-    offlineCryptoLog('decrypt + strip header', {
-      sealedBytes: payload.length,
-      plaintextBytes: plaintext.length,
-      magic: OFFLINE_AT_REST_MAGIC.toString('utf8'),
-      version,
-      macBound: Boolean(mac && mac !== 'macAddress')
-    })
-    return plaintext
-  } catch {
-    // GCM auth failure: wrong machine MAC mixed into the key, or tampered ciphertext.
+  const openWith = (macs: string[]): { plaintext: Buffer; mac: string } | null => {
+    for (const mac of macs) {
+      const decipher = createDecipheriv('aes-256-gcm', bindKeyToMac(rawKey, mac), nonce)
+      decipher.setAuthTag(tag)
+
+      try {
+        return { plaintext: Buffer.concat([decipher.update(ciphertext), decipher.final()]), mac }
+      } catch {
+        // Not the MAC this blob was sealed with — try the next one.
+      }
+    }
+
+    return null
+  }
+
+  const knownMacs = await getKnownBindingMacs()
+  let opened = openWith(knownMacs)
+
+  if (!opened) {
+    // The sealing adapter may be disconnected or replaced, and a disconnected adapter is
+    // invisible to os.networkInterfaces(), so ask the OS for every adapter it knows.
+    const unseen = (await getHardwareBindingMacs()).filter((mac) => !knownMacs.includes(mac))
+    opened = openWith(unseen)
+  }
+
+  if (!opened) {
+    // GCM auth failure on every candidate: another machine's package, or tampered bytes.
     offlineCryptoLog('decrypt failed: auth tag (wrong device MAC or tampered package)', {
       sealedBytes: payload.length,
-      macBound: Boolean(mac && mac !== 'macAddress')
+      macsTried: knownMacs.length
     })
     throw new Error('2194 : Offline video is not valid on this device.')
   }
+
+  if (!knownMacs.includes(opened.mac)) {
+    // Newly discovered adapter — keep it so later opens skip the subprocess probe.
+    await rememberBindingMac(opened.mac)
+  }
+
+  offlineCryptoLog('decrypt + strip header', {
+    sealedBytes: payload.length,
+    plaintextBytes: opened.plaintext.length,
+    magic: OFFLINE_AT_REST_MAGIC.toString('utf8'),
+    version,
+    macBound: opened.mac !== 'macAddress'
+  })
+
+  return opened.plaintext
 }

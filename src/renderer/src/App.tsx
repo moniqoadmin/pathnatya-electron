@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Account } from './api/accounts'
 import { postAppLog, reportAppLog, type AppLogEvent } from './api/logs'
+import { startConnectivityWatch } from './lib/connectivity'
 import { clearHlsPlayback } from './lib/hls-loader'
 import { clearAllStorage } from './lib/storage'
 import LandingPage from './pages/LandingPage'
@@ -82,6 +83,9 @@ export default function App() {
     clearAllStorage()
     clearHlsPlayback()
   }, [])
+
+  // Runs for the life of the app so login already knows whether the server is reachable.
+  useEffect(() => startConnectivityWatch(), [])
 
   // Main settles these before the window opens, so they are known well before login.
   useEffect(() => {

@@ -1,4 +1,5 @@
 import Hls, { ErrorTypes, Events, FetchLoader } from 'hls.js'
+import { isOffline } from './network'
 import { userError } from './user-error'
 
 export interface PreparedHlsPlayback {
@@ -49,6 +50,12 @@ export async function cancelHlsDownload() {
 }
 
 export async function clearHlsOfflineVideo() {
+  // Never erase the local package while offline — logout and account checks
+  // would otherwise force a re-download the user cannot complete.
+  if (isOffline()) {
+    return
+  }
+
   return window.pathnatya.clearHlsOfflineVideo()
 }
 

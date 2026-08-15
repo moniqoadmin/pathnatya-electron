@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UNIQUE_MANIFEST_NAME } from '../shared/unique-asar-name'
 
 let userDataDir = ''
-let bindingMac = 'AA:BB:CC:DD:EE:FF'
+/** Stands in for the MACs device-mac would offer, most likely first. */
+let bindingMacs = ['AA:BB:CC:DD:EE:FF']
+/** Adapters the OS can still enumerate once nothing holds an address. */
+let hardwareMacs: string[] = []
 
 vi.mock('electron', () => ({
   app: {
@@ -20,8 +23,11 @@ vi.mock('electron', () => ({
 }))
 
 vi.mock('./device-mac', () => ({
-  getOfflineBindingMac: () => bindingMac,
-  getSystemMacAddress: () => bindingMac
+  getOfflineBindingMac: async () => bindingMacs[0] ?? 'macAddress',
+  getKnownBindingMacs: async () => bindingMacs,
+  getHardwareBindingMacs: async () => hardwareMacs,
+  rememberBindingMac: async () => {},
+  getSystemMacAddress: () => bindingMacs[0] ?? ''
 }))
 
 const {
@@ -45,7 +51,8 @@ const {
 
 describe('hls-offline-crypto', () => {
   beforeEach(async () => {
-    bindingMac = 'AA:BB:CC:DD:EE:FF'
+    bindingMacs = ['AA:BB:CC:DD:EE:FF']
+    hardwareMacs = []
     userDataDir = await mkdtemp(join(tmpdir(), 'pathnatya-offline-'))
   })
 
@@ -78,14 +85,33 @@ describe('hls-offline-crypto', () => {
 
   it('fails decrypt when the bound MAC changes', async () => {
     const sealed = await encryptAtRest(Buffer.from('mac-bound-video'))
-    bindingMac = '11:22:33:44:55:66'
+    bindingMacs = ['11:22:33:44:55:66']
     await expect(decryptAtRest(sealed)).rejects.toThrow(/not valid on this device/u)
+  })
+
+  it('decrypts after the sealing adapter goes offline and reports no MAC', async () => {
+    const plaintext = Buffer.from('downloaded-while-online')
+    const sealed = await encryptAtRest(plaintext)
+
+    // Offline: os.networkInterfaces() reports nothing, so only the remembered MAC is left.
+    bindingMacs = ['AA:BB:CC:DD:EE:FF', 'macAddress']
+    await expect(decryptAtRest(sealed)).resolves.toEqual(plaintext)
+  })
+
+  it('decrypts via an enumerated adapter when nothing was remembered', async () => {
+    const plaintext = Buffer.from('sealed-before-upgrade')
+    const sealed = await encryptAtRest(plaintext)
+
+    bindingMacs = ['macAddress']
+    hardwareMacs = ['AA:BB:CC:DD:EE:FF']
+    await expect(decryptAtRest(sealed)).resolves.toEqual(plaintext)
   })
 })
 
 describe('hls-offline at-rest storage', () => {
   beforeEach(async () => {
-    bindingMac = 'AA:BB:CC:DD:EE:FF'
+    bindingMacs = ['AA:BB:CC:DD:EE:FF']
+    hardwareMacs = []
     userDataDir = await mkdtemp(join(tmpdir(), 'pathnatya-offline-'))
   })
 
@@ -148,7 +174,7 @@ describe('hls-offline at-rest storage', () => {
     const packageDir = join(userDataDir, 'hls-offline')
     await expect(readFile(join(packageDir, UNIQUE_MANIFEST_NAME))).resolves.toBeInstanceOf(Buffer)
 
-    bindingMac = '11:22:33:44:55:66'
+    bindingMacs = ['11:22:33:44:55:66']
     await expect(readOfflineSegment(0)).resolves.toBeNull()
     await expect(readFile(join(packageDir, UNIQUE_MANIFEST_NAME))).rejects.toThrow()
     await expect(readFile(join(packageDir, 'segments', 'segment_000.bin'))).rejects.toThrow()

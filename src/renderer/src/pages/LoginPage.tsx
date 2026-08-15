@@ -1,9 +1,11 @@
 import { FormEvent, useState } from 'react'
 import { getLoginTokens as fetchLoginTokens, login } from '../api/accounts'
 import { saveLoginTokens, saveSession } from '../lib/storage'
-import { isNetworkError } from '../lib/network'
+import { ensureOnline } from '../lib/connectivity'
+import { isNetworkError, isOffline } from '../lib/network'
 import { getDeviceId } from '../lib/device-id'
 import { applyVideoKey } from '../lib/video-key'
+import { clearHlsOfflineVideo } from '../lib/hls-loader'
 import { userError } from '../lib/user-error'
 import type { Account } from '../api/accounts'
 import PasswordInput from '../components/PasswordInput'
@@ -34,9 +36,10 @@ export default function LoginPage({
     saveLoginTokens(offline.loginTokens)
     await applyVideoKey(offline.loginTokens)
 
-    // Online-only accounts must not keep a leftover local package.
-    if (!offline.account.isOffline) {
-      await window.pathnatya.clearHlsOfflineVideo()
+    // Online-only accounts must not keep a leftover local package — but never
+    // while offline, or logout → re-login would erase a download they still need.
+    if (!offline.account.isOffline && !isOffline()) {
+      await clearHlsOfflineVideo()
     }
 
     onSuccess(offline.account)
@@ -60,6 +63,21 @@ export default function LoginPage({
 
     setLoading(true)
     try {
+      // Go straight to offline login instead of burning attempts on an unreachable server.
+      if (!(await ensureOnline())) {
+        if (await completeOfflineLogin(trimmed, password)) {
+          return
+        }
+
+        setError(
+          userError(
+            8437,
+            'Invalid phone number or password. Offline login is only available within 7 days of a successful online login on this device.'
+          )
+        )
+        return
+      }
+
       const deviceId = await getDeviceId()
       const result = await login(trimmed, password, deviceId)
       const account: Account = {
@@ -83,8 +101,8 @@ export default function LoginPage({
       saveLoginTokens(keys)
       await applyVideoKey(keys)
 
-      if (!account.isOffline) {
-        await window.pathnatya.clearHlsOfflineVideo()
+      if (!account.isOffline && !isOffline()) {
+        await clearHlsOfflineVideo()
       }
 
       await window.pathnatya.saveOfflineSession({

@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react'
 import { checkPhone } from '../api/accounts'
+import { ensureOnline } from '../lib/connectivity'
 import { isNetworkError } from '../lib/network'
 import { userError } from '../lib/user-error'
 
@@ -30,6 +31,12 @@ export default function PhoneCheckPage({
 
     setLoading(true)
     try {
+      // The watcher usually already knows; this only costs a round-trip when stale.
+      if (!(await ensureOnline())) {
+        await continueOffline(trimmed)
+        return
+      }
+
       const result = await checkPhone(trimmed)
 
       if (!result.exists) {
@@ -44,18 +51,7 @@ export default function PhoneCheckPage({
       }
     } catch (error) {
       if (isNetworkError(error)) {
-        const canContinueOffline = await window.pathnatya.hasOfflineSession(trimmed)
-        if (canContinueOffline) {
-          onExistingAccount(trimmed)
-          return
-        }
-
-        setError(
-          userError(
-            5831,
-            'No internet connection. Offline access is only available within 7 days of a successful online login on this device.'
-          )
-        )
+        await continueOffline(trimmed)
         return
       }
 
@@ -63,6 +59,20 @@ export default function PhoneCheckPage({
     } finally {
       setLoading(false)
     }
+  }
+
+  async function continueOffline(trimmed: string): Promise<void> {
+    if (await window.pathnatya.hasOfflineSession(trimmed)) {
+      onExistingAccount(trimmed)
+      return
+    }
+
+    setError(
+      userError(
+        5831,
+        'No internet connection. Offline access is only available within 7 days of a successful online login on this device.'
+      )
+    )
   }
 
   return (

@@ -1,11 +1,33 @@
 import { createHash, timingSafeEqual } from 'crypto'
 import { existsSync, promises as fs } from 'fs'
 import { join } from 'path'
-import { app } from 'electron'
+import { app, net } from 'electron'
 import { UNIQUE_MANIFEST_NAME } from '../shared/unique-asar-name'
 import { decryptAtRest, encryptAtRest } from './hls-offline-crypto'
 import { readSealedManifestBlob, writeSealedManifestBlob } from './hls-offline-db'
 import { isTrustedExpired, loadTrustedTime } from './trusted-time'
+
+/** Prefer keeping a downloaded package when the machine cannot re-fetch it. */
+function isAppOffline(): boolean {
+  try {
+    return net.isOnline() === false
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Wipe the offline package only when online. Offline wipes strand the user until
+ * they can download again (e.g. logout → status check → decrypt glitch).
+ */
+async function deleteOfflineVideoIfOnline(reason: string): Promise<void> {
+  if (isAppOffline()) {
+    offlineLog('skipping offline-package wipe while offline', { reason })
+    return
+  }
+
+  await deleteOfflineVideo()
+}
 
 /** Offline video package is valid for 10 days from download (server time). */
 export const OFFLINE_VIDEO_TTL_MS = 10 * 24 * 60 * 60 * 1000
@@ -139,17 +161,20 @@ async function pathExists(filePath: string): Promise<boolean> {
 
 /**
  * Decrypt an at-rest blob. On failure (wrong device MAC, tamper, bad header)
- * wipe the whole offline package so it cannot be reused on another machine.
+ * wipe the whole offline package so it cannot be reused on another machine —
+ * but never while offline, so logout / status checks cannot erase a download
+ * the user cannot replace yet.
  */
 async function decryptSealedBlobOrWipe(sealed: Buffer, sourceLabel: string): Promise<Buffer> {
   try {
     return await decryptAtRest(sealed)
   } catch (error) {
-    offlineLog('at-rest decrypt failed — wiping offline package', {
+    offlineLog('at-rest decrypt failed', {
       file: sourceLabel,
-      message: error instanceof Error ? error.message : String(error)
+      message: error instanceof Error ? error.message : String(error),
+      wipe: !isAppOffline()
     })
-    await deleteOfflineVideo()
+    await deleteOfflineVideoIfOnline('at-rest decrypt failed')
     throw error
   }
 }
@@ -170,16 +195,16 @@ export async function readOfflineManifest(): Promise<OfflineVideoManifest | null
     try {
       sealed = await readSealedManifestBlob(manifestPath())
     } catch (error) {
-      offlineLog('manifest db decrypt/read failed — wiping offline package', {
+      offlineLog('manifest db decrypt/read failed', {
         file: manifestPath(),
         message: error instanceof Error ? error.message : String(error)
       })
-      await deleteOfflineVideo()
+      await deleteOfflineVideoIfOnline('manifest db decrypt/read failed')
       return null
     }
 
     if (!sealed) {
-      await deleteOfflineVideo()
+      await deleteOfflineVideoIfOnline('manifest blob missing')
       return null
     }
 
@@ -195,7 +220,7 @@ export async function readOfflineManifest(): Promise<OfflineVideoManifest | null
       !Array.isArray(parsed.segments) ||
       parsed.segments.length === 0
     ) {
-      await deleteOfflineVideo()
+      await deleteOfflineVideoIfOnline('manifest invalid')
       return null
     }
 
@@ -245,7 +270,7 @@ export async function readOfflineIntegrity(): Promise<OfflineIntegrityManifest |
       parsed.hashes.length === 0 ||
       parsed.hashes.some((hash) => typeof hash !== 'string' || !/^[0-9a-f]{64}$/iu.test(hash))
     ) {
-      await deleteOfflineVideo()
+      await deleteOfflineVideoIfOnline('integrity file invalid')
       return null
     }
 
@@ -283,7 +308,7 @@ export async function assertOfflinePackageIntegrity(
       expected: manifest.segments.length,
       actual: integrity?.hashes.length ?? 0
     })
-    await deleteOfflineVideo()
+    await deleteOfflineVideoIfOnline('integrity missing/incomplete')
     throw new Error('7316 : Something went wrong. Please contact admin.')
   }
 
@@ -293,7 +318,7 @@ export async function assertOfflinePackageIntegrity(
       offlineLog('integrity check failed: segment missing after decrypt', {
         index: segment.index
       })
-      await deleteOfflineVideo()
+      await deleteOfflineVideoIfOnline('segment missing after decrypt')
       throw new Error('294 : Something went wrong. Please contact admin.')
     }
 
@@ -309,7 +334,7 @@ export async function assertOfflinePackageIntegrity(
     })
 
     if (!ok) {
-      await deleteOfflineVideo()
+      await deleteOfflineVideoIfOnline('segment hash mismatch')
       throw new Error('8651 : Offline video integrity check failed. Please contact admin.')
     }
   }
@@ -335,7 +360,7 @@ export async function assertOfflineSegmentIntegrity(
   })
 
   if (!ok) {
-    await deleteOfflineVideo()
+    await deleteOfflineVideoIfOnline('playback segment hash mismatch')
     throw new Error('537 : Something went wrong. Please contact admin.')
   }
 }
@@ -347,7 +372,7 @@ export async function getValidOfflineManifest(): Promise<OfflineVideoManifest | 
   }
 
   if (!(await allSegmentFilesPresent(manifest))) {
-    await deleteOfflineVideo()
+    await deleteOfflineVideoIfOnline('segment files incomplete')
     return null
   }
 
@@ -421,6 +446,11 @@ export async function deleteOfflineVideo(): Promise<void> {
   } catch {
     // Best-effort cleanup of the separate integrity file.
   }
+}
+
+/** Exported for playback paths that should not erase a package while offline. */
+export async function deleteOfflineVideoUnlessOffline(reason: string): Promise<void> {
+  await deleteOfflineVideoIfOnline(reason)
 }
 
 export async function purgeExpiredOfflineVideo(): Promise<void> {
