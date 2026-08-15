@@ -838,7 +838,7 @@ export default function VideoLoaderPage({
                     Playback is paused. Stop the recording or screen share to continue watching.
                   </p>
                 </>
-              )}
+              ) : null}
             </div>
           )}
         </div>
