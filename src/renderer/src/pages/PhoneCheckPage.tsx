@@ -62,6 +62,7 @@ export default function PhoneCheckPage({
   }
 
   async function continueOffline(trimmed: string): Promise<void> {
+    // Only offline-capable accounts get a local session; online-only must be online.
     if (await window.pathnatya.hasOfflineSession(trimmed)) {
       onExistingAccount(trimmed)
       return
@@ -69,8 +70,8 @@ export default function PhoneCheckPage({
 
     setError(
       userError(
-        5831,
-        'No internet connection. Offline access is only available within 7 days of a successful online login on this device.'
+        3829,
+        'Internet connection is required to continue. Please connect and try again.'
       )
     )
   }

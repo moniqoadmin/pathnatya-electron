@@ -124,6 +124,11 @@ export async function saveOfflineSession(payload: OfflineSessionPayload): Promis
     throw new Error('578 : Invalid phone number for offline session.')
   }
 
+  // Online-only accounts must not get a local login fallback.
+  if (!payload.account.isOffline) {
+    return
+  }
+
   if (!payload.password) {
     throw new Error('9247 : Password is required to save an offline session.')
   }
@@ -151,7 +156,9 @@ export async function saveOfflineSession(payload: OfflineSessionPayload): Promis
 
 export async function hasOfflineSession(phoneNumber: string): Promise<boolean> {
   const stored = await readStoredSession()
-  return Boolean(stored && stored.phoneNumber === phoneNumber.trim())
+  return Boolean(
+    stored && stored.phoneNumber === phoneNumber.trim() && Boolean(stored.account.isOffline)
+  )
 }
 
 export async function tryOfflineLogin(
@@ -168,6 +175,11 @@ export async function tryOfflineLogin(
   const actual = hashPassword(password, salt)
 
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+    return null
+  }
+
+  // Online-only accounts must authenticate against the server.
+  if (!stored.account.isOffline) {
     return null
   }
 

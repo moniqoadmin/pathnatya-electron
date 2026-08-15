@@ -16,6 +16,11 @@ interface LoginPageProps {
   onSuccess: (account: Account) => void
 }
 
+const INTERNET_REQUIRED_MESSAGE = userError(
+  3829,
+  'Internet connection is required to log in. Please connect and try again.'
+)
+
 export default function LoginPage({
   phoneNumber: initialPhone,
   onBack,
@@ -26,21 +31,16 @@ export default function LoginPage({
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  /** Offline login is only for accounts with offline mode enabled. */
   async function completeOfflineLogin(trimmed: string, passwordValue: string): Promise<boolean> {
     const offline = await window.pathnatya.tryOfflineLogin(trimmed, passwordValue)
-    if (!offline) {
+    if (!offline || !offline.account.isOffline) {
       return false
     }
 
     saveSession(offline.token, offline.account)
     saveLoginTokens(offline.loginTokens)
     await applyVideoKey(offline.loginTokens)
-
-    // Online-only accounts must not keep a leftover local package — but never
-    // while offline, or logout → re-login would erase a download they still need.
-    if (!offline.account.isOffline && !isOffline()) {
-      await clearHlsOfflineVideo()
-    }
 
     onSuccess(offline.account)
     return true
@@ -63,18 +63,13 @@ export default function LoginPage({
 
     setLoading(true)
     try {
-      // Go straight to offline login instead of burning attempts on an unreachable server.
+      // No network: only offline-capable accounts may continue via the local session.
       if (!(await ensureOnline())) {
         if (await completeOfflineLogin(trimmed, password)) {
           return
         }
 
-        setError(
-          userError(
-            8437,
-            'Invalid phone number or password. Offline login is only available within 7 days of a successful online login on this device.'
-          )
-        )
+        setError(INTERNET_REQUIRED_MESSAGE)
         return
       }
 
@@ -92,7 +87,12 @@ export default function LoginPage({
       try {
         keys = await fetchLoginTokens(result.token)
       } catch (tokenError) {
-        if (isNetworkError(tokenError) && (await completeOfflineLogin(trimmed, password))) {
+        // Tokens require the server; online-only accounts cannot fall back offline.
+        if (isNetworkError(tokenError)) {
+          if (account.isOffline && (await completeOfflineLogin(trimmed, password))) {
+            return
+          }
+          setError(INTERNET_REQUIRED_MESSAGE)
           return
         }
         throw tokenError
@@ -101,17 +101,21 @@ export default function LoginPage({
       saveLoginTokens(keys)
       await applyVideoKey(keys)
 
-      if (!account.isOffline && !isOffline()) {
-        await clearHlsOfflineVideo()
+      if (!account.isOffline) {
+        // Online-only: no local login session, and no leftover disk package.
+        await window.pathnatya.clearOfflineSession()
+        if (!isOffline()) {
+          await clearHlsOfflineVideo()
+        }
+      } else {
+        await window.pathnatya.saveOfflineSession({
+          phoneNumber: trimmed,
+          account,
+          token: result.token,
+          loginTokens: keys,
+          password
+        })
       }
-
-      await window.pathnatya.saveOfflineSession({
-        phoneNumber: trimmed,
-        account,
-        token: result.token,
-        loginTokens: keys,
-        password
-      })
 
       onSuccess(account)
     } catch (error) {
@@ -120,12 +124,7 @@ export default function LoginPage({
           return
         }
 
-        setError(
-          userError(
-            8437,
-            'Invalid phone number or password. Offline login is only available within 7 days of a successful online login on this device.'
-          )
-        )
+        setError(INTERNET_REQUIRED_MESSAGE)
         return
       }
 
