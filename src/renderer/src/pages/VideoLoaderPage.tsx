@@ -100,11 +100,7 @@ export default function VideoLoaderPage({
 
   const togglePlay = useEffectEvent(() => {
     const video = videoRef.current
-    if (
-      !video ||
-      captureActiveRef.current ||
-      document.fullscreenElement !== videoContainerRef.current
-    ) {
+    if (!video || captureActiveRef.current) {
       return
     }
 
@@ -166,8 +162,8 @@ export default function VideoLoaderPage({
     enterFullscreen()
   })
 
-  /** Pauses playback and drops back to the fullscreen gate. */
-  const enforceFullscreenGate = useEffectEvent(() => {
+  /** Pauses playback and drops out of fullscreen (used by the capture / away guards). */
+  const pausePlayback = useEffectEvent(() => {
     const video = videoRef.current
     if (video && !video.paused) {
       video.pause()
@@ -178,22 +174,10 @@ export default function VideoLoaderPage({
     }
   })
 
-  // Playback is only allowed in fullscreen, so leaving it pauses the video.
+  // Fullscreen is optional; just track the state so the UI can reflect it.
   useEffect(() => {
     const onFullscreenChange = (): void => {
-      const active = document.fullscreenElement === videoContainerRef.current
-      setIsFullscreen(active)
-
-      const video = videoRef.current
-      if (!video) {
-        return
-      }
-
-      if (active && !captureActiveRef.current) {
-        void video.play().catch(() => {})
-      } else if (!video.paused) {
-        video.pause()
-      }
+      setIsFullscreen(document.fullscreenElement === videoContainerRef.current)
     }
 
     onFullscreenChange()
@@ -220,13 +204,13 @@ export default function VideoLoaderPage({
         window.clearTimeout(graceTimeoutId)
         graceTimeoutId = window.setTimeout(() => {
           if (isAway()) {
-            enforceFullscreenGate()
+            pausePlayback()
           }
         }, FULLSCREEN_GRACE_MS - sinceEntered)
         return
       }
 
-      enforceFullscreenGate()
+      pausePlayback()
     }
 
     const onBlur = (): void => {
@@ -289,7 +273,7 @@ export default function VideoLoaderPage({
       }
 
       if (state.active) {
-        enforceFullscreenGate()
+        pausePlayback()
       }
     }
 
@@ -422,7 +406,7 @@ export default function VideoLoaderPage({
     }
 
     const onPlay = (): void => {
-      if (captureActiveRef.current || document.fullscreenElement !== videoContainerRef.current) {
+      if (captureActiveRef.current) {
         video.pause()
         return
       }
@@ -440,7 +424,7 @@ export default function VideoLoaderPage({
         setDuration(video.duration)
       }
       video.volume = volumeRef.current
-      if (document.fullscreenElement === videoContainerRef.current) {
+      if (!captureActiveRef.current) {
         void video.play().catch(() => {})
       }
     }
@@ -476,7 +460,7 @@ export default function VideoLoaderPage({
   }, [playbackReady])
 
   useEffect(() => {
-    if (!playbackReady || !isFullscreen) {
+    if (!playbackReady) {
       return
     }
 
@@ -498,7 +482,7 @@ export default function VideoLoaderPage({
       running = false
       window.cancelAnimationFrame(frameId)
     }
-  }, [playbackReady, isFullscreen])
+  }, [playbackReady])
 
   // Silently re-assert the login-time phone snapshot so in-memory edits do not stick.
   useEffect(() => {
@@ -545,25 +529,18 @@ export default function VideoLoaderPage({
     }
   }, [playbackReady])
 
+  // Fullscreen is optional, so start playback in whatever window mode we are in.
   useEffect(() => {
     if (!playbackReady) {
       return
     }
 
-    let cancelled = false
-
-    void (async () => {
-      const packaged = await window.pathnatya.isPackaged()
-      if (cancelled || !packaged) {
-        return
-      }
-
-      enterFullscreen()
-    })()
-
-    return () => {
-      cancelled = true
+    const video = videoRef.current
+    if (!video || captureActiveRef.current) {
+      return
     }
+
+    void video.play().catch(() => {})
   }, [playbackReady])
 
   useEffect(() => {
@@ -698,17 +675,15 @@ export default function VideoLoaderPage({
               title="Playing prepared video"
             />
           )}
-          {isFullscreen && (
-            <button
-              type="button"
-              className="video-overlay-btn video-overlay-btn-icon"
-              onClick={toggleFullscreen}
-              aria-label="Exit full screen"
-              title="Exit full screen"
-            >
-              <IconFullscreenExit />
-            </button>
-          )}
+          <button
+            type="button"
+            className="video-overlay-btn video-overlay-btn-icon"
+            onClick={toggleFullscreen}
+            aria-label={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
+            title={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
+          >
+            {isFullscreen ? <IconFullscreenExit /> : <IconFullscreen />}
+          </button>
         </div>
 
         <div ref={videoPlayerRef} className="video-player">
@@ -823,7 +798,7 @@ export default function VideoLoaderPage({
             </>
           )}
 
-          {!isFullscreen && !videoLoading && (!videoError || captureActive) && (
+          {captureActive && !videoLoading && (
             <div className="video-fullscreen-gate" role="alertdialog" aria-live="polite">
               <span className="video-fullscreen-gate-lock" aria-hidden="true">
                 <IconLock />
@@ -837,7 +812,7 @@ export default function VideoLoaderPage({
                     record the screen. Open Pathnatya on a physical Windows or macOS laptop.
                   </p>
                 </>
-              ) : captureActive ? (
+              ) : (
                 <>
                   <p className="video-fullscreen-gate-text">
                     6183 : Screen recording or sharing detected
@@ -846,22 +821,6 @@ export default function VideoLoaderPage({
                   <p className="video-fullscreen-gate-hint">
                     Playback is paused. Stop the recording or screen share to continue watching.
                   </p>
-                </>
-              ) : (
-                <>
-                  <p className="video-fullscreen-gate-text">
-                    1274 : Full screen is required to play the video
-                  </p>
-                  <button
-                    type="button"
-                    className="video-fullscreen-gate-btn"
-                    onClick={toggleFullscreen}
-                    aria-label="Enter full screen"
-                    title="Enter full screen"
-                  >
-                    <IconFullscreen />
-                  </button>
-                  <p className="video-fullscreen-gate-hint">Click the icon to go full screen</p>
                 </>
               )}
             </div>
