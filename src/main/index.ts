@@ -24,7 +24,7 @@ import {
   tryOfflineLogin,
   type OfflineSessionPayload
 } from './offline-session'
-import { loadTrustedTime, syncTrustedTime } from './trusted-time'
+import { loadTrustedTime, syncTrustedTime, getClockSkewVerdict, startTrustedTimeWatch } from './trusted-time'
 import { enforceDesktopLaptopOnly } from './platform-guard'
 import {
   getScreenCaptureState,
@@ -165,21 +165,29 @@ async function getDeviceIdentifier(): Promise<DeviceIdentifier> {
 }
 
 /**
- * Reason to refuse video work, or null on physical hardware. Content protection and
+ * Reason to refuse video work, or null when playback is allowed. Content protection and
  * recorder detection both live inside the guest, while the host records the guest
  * display from outside it, so a VM never gets a decrypted segment at all — pausing
  * the player alone would leave the plaintext sitting in the guest.
  */
 function videoBlockedReason(): string | null {
   const vm = getVirtualMachineVerdict()
-  if (!vm.virtual) {
-    return null
+  if (vm.virtual) {
+    return (
+      `845 : Video playback is blocked because ${vm.vendor} was detected. ` +
+      'Run Pathnatya on a physical Windows or macOS laptop.'
+    )
   }
 
-  return (
-    `845 : Video playback is blocked because ${vm.vendor} was detected. ` +
-    'Run Pathnatya on a physical Windows or macOS laptop.'
-  )
+  const clock = getClockSkewVerdict()
+  if (clock.mismatched) {
+    return (
+      '2904 : Video playback is blocked because this computer\'s clock does not match ' +
+      'server GMT time. Turn on automatic date & time, then restart Pathnatya.'
+    )
+  }
+
+  return null
 }
 
 function interruptSession(mainWindow: BrowserWindow): void {
@@ -470,6 +478,8 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('get-vm-state', () => getVirtualMachineVerdict())
 
+  ipcMain.handle('get-clock-skew-state', () => getClockSkewVerdict())
+
   ipcMain.handle('get-app-permissions', () => getAppPermissionsStatus())
 
   ipcMain.handle('open-permission-settings', async (_event, id?: PermissionId) => {
@@ -593,10 +603,17 @@ app.whenReady().then(async () => {
   await loadTrustedTime()
   try {
     const serverNow = await syncTrustedTime()
+    const clock = getClockSkewVerdict()
     console.log('[trusted-time] synced', new Date(serverNow).toISOString())
+    if (clock.mismatched) {
+      console.warn(
+        `[trusted-time] clock mismatch — |server−local|=${clock.skewMs}ms; video blocked`
+      )
+    }
   } catch (error) {
     console.warn('[trusted-time] startup sync failed; using last known offset if any', error)
   }
+  startTrustedTimeWatch()
 
   await purgeExpiredOfflineVideo()
   await cleanupPermissionProbe()

@@ -66,6 +66,7 @@ export default function VideoLoaderPage({
   const captureActiveRef = useRef(false)
   const captureWasActiveRef = useRef<boolean | null>(null)
   const vmReportedRef = useRef(false)
+  const clockReportedRef = useRef(false)
   const videoTamperReportedRef = useRef(false)
   const playbackReadyRef = useRef(false)
   const watermarkTextRef = useRef(
@@ -86,7 +87,9 @@ export default function VideoLoaderPage({
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [captureActive, setCaptureActive] = useState(false)
   const [captureApp, setCaptureApp] = useState('')
-  const [captureReason, setCaptureReason] = useState<'' | 'recorder' | 'virtual-machine'>('')
+  const [captureReason, setCaptureReason] = useState<
+    '' | 'recorder' | 'virtual-machine' | 'clock-mismatch'
+  >('')
 
   const showLowNetworkSpeed = isLowDownloadSpeed(networkMbps) && !fromOffline
 
@@ -237,14 +240,14 @@ export default function VideoLoaderPage({
     }
   }, [])
 
-  // A screen recorder / remote-control app running, or a virtual machine hosting this
-  // window, means the frame could leave this machine, so playback stops and the
-  // fullscreen gate takes over. A recorder can be closed; a VM verdict never clears.
+  // A screen recorder / remote-control app, a VM, or a wrong system clock vs server
+  // GMT means playback stops and the fullscreen gate takes over. Recorders can be
+  // closed; VM and clock-mismatch verdicts do not clear until restart (clock after fix).
   useEffect(() => {
     const applyCaptureState = (state: {
       active: boolean
       appName: string
-      reason: '' | 'recorder' | 'virtual-machine'
+      reason: '' | 'recorder' | 'virtual-machine' | 'clock-mismatch'
     }): void => {
       captureActiveRef.current = state.active
       setCaptureActive(state.active)
@@ -255,6 +258,11 @@ export default function VideoLoaderPage({
         if (!vmReportedRef.current) {
           vmReportedRef.current = true
           reportAppLog('VM_DETECTED', true)
+        }
+      } else if (state.reason === 'clock-mismatch') {
+        if (!clockReportedRef.current) {
+          clockReportedRef.current = true
+          reportAppLog('CLOCK_MISMATCH', true)
         }
       } else {
         const previous = captureWasActiveRef.current
@@ -812,7 +820,15 @@ export default function VideoLoaderPage({
                     record the screen. Open Pathnatya on a physical Windows or macOS laptop.
                   </p>
                 </>
-              ) : (
+              ) : captureReason === 'clock-mismatch' ? (
+                <>
+                  <p className="video-fullscreen-gate-text">2904 : System clock does not match</p>
+                  <p className="video-fullscreen-gate-hint">
+                    This computer&apos;s GMT time does not match the server. Turn on automatic
+                    date &amp; time in system settings, then restart Pathnatya to watch the video.
+                  </p>
+                </>
+              ) : captureActive ? (
                 <>
                   <p className="video-fullscreen-gate-text">
                     6183 : Screen recording or sharing detected
