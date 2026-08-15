@@ -21,13 +21,19 @@ export interface ScreenCaptureState {
   active: boolean
   appName: string
   /** '' when playback is allowed. */
-  reason: '' | 'recorder' | 'virtual-machine'
+  reason: '' | 'recorder' | 'virtual-machine' | 'clock-mismatch'
 }
 
 export interface VmState {
   virtual: boolean
   /** Display name of the hypervisor, e.g. "VMware". Empty when not virtual. */
   vendor: string
+}
+
+export interface ClockSkewState {
+  mismatched: boolean
+  skewMs: number | null
+  checked: boolean
 }
 
 export interface ScanLogEntry {
@@ -93,6 +99,7 @@ export interface PathnatyaAPI {
   getScreenCaptureState: () => Promise<ScreenCaptureState>
   onScreenCaptureChanged: (callback: (state: ScreenCaptureState) => void) => () => void
   getVmState: () => Promise<VmState>
+  getClockSkewState: () => Promise<ClockSkewState>
   getAppPermissions: () => Promise<AppPermissionsStatus>
   openPermissionSettings: (id?: PermissionId) => Promise<void>
   requestAccessibilityPermission: () => Promise<boolean>

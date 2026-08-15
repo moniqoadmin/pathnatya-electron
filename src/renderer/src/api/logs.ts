@@ -10,6 +10,7 @@ export type AppLogEvent =
   | 'FILES_TAMPERED'
   | 'VIDEO_FILES_CHANGED'
   | 'VM_DETECTED'
+  | 'CLOCK_MISMATCH'
 
 export async function postAppLog(event: AppLogEvent, tampered: boolean): Promise<boolean> {
   const session = getSession()

@@ -40,6 +40,7 @@ export default function App() {
   const filesTamperedReportedRef = useRef(false)
   const filesTamperedRequestRef = useRef(false)
   const virtualMachineRef = useRef(false)
+  const clockMismatchedRef = useRef(false)
 
   const refreshPermissions = useCallback(async (options?: { silent?: boolean }) => {
     const silent = Boolean(options?.silent)
@@ -82,10 +83,13 @@ export default function App() {
     clearHlsPlayback()
   }, [])
 
-  // Main settles this before the window opens, so it is known well before login.
+  // Main settles these before the window opens, so they are known well before login.
   useEffect(() => {
     void window.pathnatya.getVmState().then((state) => {
       virtualMachineRef.current = state.virtual
+    })
+    void window.pathnatya.getClockSkewState().then((state) => {
+      clockMismatchedRef.current = state.mismatched
     })
   }, [])
 
@@ -258,10 +262,25 @@ export default function App() {
         }}
         onSuccess={(loggedInAccount) => {
           setAccount(loggedInAccount)
-          // Downloading is refused on a VM, so skip straight to the player, where
-          // the gate explains why nothing will play.
-          const canPrepare = loggedInAccount.isOffline && !virtualMachineRef.current
-          setPage(canPrepare ? 'preparing' : 'video')
+          // Re-read clock skew in case the user changed the system time while
+          // sitting on the login screen after a clean startup sync.
+          void window.pathnatya
+            .getClockSkewState()
+            .then((clock) => {
+              clockMismatchedRef.current = clock.mismatched
+              const canPrepare =
+                loggedInAccount.isOffline &&
+                !virtualMachineRef.current &&
+                !clock.mismatched
+              setPage(canPrepare ? 'preparing' : 'video')
+            })
+            .catch(() => {
+              const canPrepare =
+                loggedInAccount.isOffline &&
+                !virtualMachineRef.current &&
+                !clockMismatchedRef.current
+              setPage(canPrepare ? 'preparing' : 'video')
+            })
         }}
       />
     )

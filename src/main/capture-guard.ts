@@ -3,11 +3,12 @@ import { basename } from 'path'
 import { promisify } from 'util'
 import type { BrowserWindow } from 'electron'
 import { getVirtualMachineVerdict } from './vm-guard'
+import { getClockSkewVerdict } from './trusted-time'
 
 const execFileAsync = promisify(execFile)
 
 /** Why playback is blocked, so the renderer can explain it accurately. */
-export type CaptureReason = '' | 'recorder' | 'virtual-machine'
+export type CaptureReason = '' | 'recorder' | 'virtual-machine' | 'clock-mismatch'
 
 export type ScreenCaptureState = {
   active: boolean
@@ -429,6 +430,13 @@ async function detectCapture(): Promise<ScreenCaptureState> {
     return { active: true, appName: vm.vendor, reason: 'virtual-machine' }
   }
 
+  // Wrong system clock vs server GMT — refuse playback until the user fixes time
+  // and restarts (startup sync is what sets this verdict).
+  const clock = getClockSkewVerdict()
+  if (clock.mismatched) {
+    return { active: true, appName: 'system clock', reason: 'clock-mismatch' }
+  }
+
   const running = await listProcessNames()
 
   // A failed process listing must not block playback; keep the previous verdict.
@@ -479,7 +487,11 @@ export function startScreenCaptureWatch(window: BrowserWindow): void {
 
     const next = await detectCapture()
 
-    if (next.active !== currentState.active || next.appName !== currentState.appName) {
+    if (
+      next.active !== currentState.active ||
+      next.appName !== currentState.appName ||
+      next.reason !== currentState.reason
+    ) {
       currentState = next
 
       if (!window.isDestroyed()) {

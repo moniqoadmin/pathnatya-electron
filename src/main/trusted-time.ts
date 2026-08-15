@@ -1,10 +1,19 @@
 import { promises as fs } from 'fs'
 import { join } from 'path'
-import { app, net } from 'electron'
+import { app, net, safeStorage } from 'electron'
 import { APP_KEY, API_BASE } from '../shared/api-config'
 
-const STATE_FILE = 'trusted-time.json'
+/** Sealed with OS safeStorage (DPAPI / Keychain). Legacy plaintext name kept for migration. */
+const STATE_FILE = 'trusted-time.dat'
+const LEGACY_STATE_FILE = 'trusted-time.json'
 const TIME_PATH = '/health/time'
+/**
+ * Max |server UTC − local UTC| allowed before video is refused.
+ * Both values are epoch ms (GMT/UTC); small skew covers network and scheduling jitter.
+ */
+export const CLOCK_SKEW_TOLERANCE_MS = 2 * 60 * 1000
+/** How often to re-fetch server GMT and compare to the local clock while the app runs. */
+export const CLOCK_SKEW_POLL_MS = 60_000
 
 interface TrustedTimeState {
   version: 1
@@ -21,14 +30,49 @@ interface ServerTimeResponse {
   unixMs?: number
 }
 
+export type ClockSkewVerdict = {
+  /** True after a successful sync where |server − local| exceeded tolerance. */
+  mismatched: boolean
+  /** Absolute skew in ms from the latest successful sync this process, or null. */
+  skewMs: number | null
+  /** True once syncTrustedTime has succeeded at least once this process. */
+  checked: boolean
+}
+
 let memory: TrustedTimeState | null = null
 let loaded = false
 /** Monotonic baseline taken at the latest sync (process-local). */
 let monoNsAtSync: bigint | null = null
 let persistQueue: Promise<void> = Promise.resolve()
+/** Process-local: set on each successful syncTrustedTime. */
+let lastSkewMs: number | null = null
+let clockMismatched = false
+let clockChecked = false
+let skewPollTimeoutId: ReturnType<typeof setTimeout> | null = null
+let skewPollInflight: Promise<void> | null = null
 
 function statePath(): string {
   return join(app.getPath('userData'), STATE_FILE)
+}
+
+function legacyStatePath(): string {
+  return join(app.getPath('userData'), LEGACY_STATE_FILE)
+}
+
+function seal(plaintext: string): Buffer {
+  if (safeStorage.isEncryptionAvailable()) {
+    return safeStorage.encryptString(plaintext)
+  }
+
+  return Buffer.from(plaintext, 'utf8')
+}
+
+function unseal(payload: Buffer): string {
+  if (safeStorage.isEncryptionAvailable()) {
+    return safeStorage.decryptString(payload)
+  }
+
+  return payload.toString('utf8')
 }
 
 function isValidState(value: unknown): value is TrustedTimeState {
@@ -45,10 +89,21 @@ function isValidState(value: unknown): value is TrustedTimeState {
   )
 }
 
+function parseStateJson(raw: string): TrustedTimeState | null {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return isValidState(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 async function persist(state: TrustedTimeState): Promise<void> {
   persistQueue = persistQueue
     .then(async () => {
-      await fs.writeFile(statePath(), JSON.stringify(state), 'utf8')
+      await fs.writeFile(statePath(), seal(JSON.stringify(state)))
+      // Drop any leftover plaintext from older builds.
+      await fs.rm(legacyStatePath(), { force: true })
     })
     .catch(() => {
       // Best-effort — expiry still works in-memory for this process.
@@ -58,6 +113,7 @@ async function persist(state: TrustedTimeState): Promise<void> {
 
 /**
  * Load persisted offset / last-seen watermark. Safe to call repeatedly.
+ * Prefers the sealed `.dat`; migrates legacy plaintext `.json` once.
  */
 export async function loadTrustedTime(): Promise<void> {
   if (loaded) {
@@ -65,11 +121,25 @@ export async function loadTrustedTime(): Promise<void> {
   }
 
   loaded = true
+  memory = null
+
   try {
-    const raw = await fs.readFile(statePath(), 'utf8')
-    const parsed: unknown = JSON.parse(raw)
-    if (isValidState(parsed)) {
+    const sealed = await fs.readFile(statePath())
+    const parsed = parseStateJson(unseal(sealed))
+    if (parsed) {
       memory = parsed
+      return
+    }
+  } catch {
+    // Missing or corrupt sealed file — try legacy plaintext below.
+  }
+
+  try {
+    const legacyRaw = await fs.readFile(legacyStatePath(), 'utf8')
+    const parsed = parseStateJson(legacyRaw)
+    if (parsed) {
+      memory = parsed
+      await persist(parsed)
     }
   } catch {
     memory = null
@@ -86,7 +156,68 @@ function applySync(serverMs: number, localMs: number): TrustedTimeState {
   }
   memory = next
   monoNsAtSync = process.hrtime.bigint()
+
+  // Date.now() and server unixMs are both UTC epoch ms (GMT), independent of timezone.
+  lastSkewMs = Math.abs(serverMs - localMs)
+  clockMismatched = lastSkewMs > CLOCK_SKEW_TOLERANCE_MS
+  clockChecked = true
+
   return next
+}
+
+/** Latest server-vs-local UTC comparison from this process (after syncTrustedTime). */
+export function getClockSkewVerdict(): ClockSkewVerdict {
+  return {
+    mismatched: clockMismatched,
+    skewMs: lastSkewMs,
+    checked: clockChecked
+  }
+}
+
+/**
+ * Re-sync server GMT on a fixed interval so a clock change after launch still blocks
+ * video. Failed polls keep the previous verdict (offline must not clear a mismatch).
+ */
+export function startTrustedTimeWatch(): void {
+  stopTrustedTimeWatch()
+
+  const tick = (): void => {
+    if (skewPollInflight) {
+      skewPollTimeoutId = setTimeout(tick, CLOCK_SKEW_POLL_MS)
+      return
+    }
+
+    skewPollInflight = syncTrustedTime()
+      .then((serverNow) => {
+        const clock = getClockSkewVerdict()
+        if (clock.mismatched) {
+          console.warn(
+            `[trusted-time] clock mismatch — |server−local|=${clock.skewMs}ms; video blocked`
+          )
+        } else {
+          console.log('[trusted-time] re-synced', new Date(serverNow).toISOString())
+        }
+      })
+      .catch((error) => {
+        console.warn('[trusted-time] periodic sync failed; keeping last verdict', error)
+      })
+      .finally(() => {
+        skewPollInflight = null
+        if (skewPollTimeoutId !== null) {
+          skewPollTimeoutId = setTimeout(tick, CLOCK_SKEW_POLL_MS)
+        }
+      })
+  }
+
+  // Startup already synced once; wait a full interval before the next compare.
+  skewPollTimeoutId = setTimeout(tick, CLOCK_SKEW_POLL_MS)
+}
+
+export function stopTrustedTimeWatch(): void {
+  if (skewPollTimeoutId !== null) {
+    clearTimeout(skewPollTimeoutId)
+    skewPollTimeoutId = null
+  }
 }
 
 /**
@@ -216,13 +347,23 @@ export function isTrustedTtlExpired(savedAt: string, ttlMs: number): boolean {
   return result.nowMs - savedAtMs > ttlMs
 }
 
+/** Test helper — wait for queued disk writes to finish. */
+export async function __flushTrustedTimePersistForTests(): Promise<void> {
+  await persistQueue
+}
+
 /** Test helper — reset in-memory state between cases. */
 export async function __resetTrustedTimeForTests(): Promise<void> {
+  stopTrustedTimeWatch()
   await persistQueue
+  await skewPollInflight
   memory = null
   loaded = false
   monoNsAtSync = null
   persistQueue = Promise.resolve()
+  lastSkewMs = null
+  clockMismatched = false
+  clockChecked = false
 }
 
 /** Test helper — inject a sync without hitting the network. */
@@ -232,11 +373,8 @@ export function __seedTrustedTimeForTests(
   lastSeenMs?: number
 ): void {
   loaded = true
-  memory = {
-    version: 1,
-    serverMsAtSync: serverMs,
-    localMsAtSync: localMs,
-    lastSeenTrustedMs: lastSeenMs ?? Math.max(memory?.lastSeenTrustedMs ?? 0, serverMs)
+  applySync(serverMs, localMs)
+  if (lastSeenMs !== undefined && memory) {
+    memory = { ...memory, lastSeenTrustedMs: lastSeenMs }
   }
-  monoNsAtSync = process.hrtime.bigint()
 }

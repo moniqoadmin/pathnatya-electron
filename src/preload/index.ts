@@ -16,12 +16,18 @@ export type HlsOfflineStatus = {
 export type ScreenCaptureState = {
   active: boolean
   appName: string
-  reason: '' | 'recorder' | 'virtual-machine'
+  reason: '' | 'recorder' | 'virtual-machine' | 'clock-mismatch'
 }
 
 export type VmState = {
   virtual: boolean
   vendor: string
+}
+
+export type ClockSkewState = {
+  mismatched: boolean
+  skewMs: number | null
+  checked: boolean
 }
 
 export type ScanLogEntry = {
@@ -134,6 +140,8 @@ const API = {
   getScreenCaptureState: () =>
     ipcRenderer.invoke('get-screen-capture-state') as Promise<ScreenCaptureState>,
   getVmState: () => ipcRenderer.invoke('get-vm-state') as Promise<VmState>,
+  getClockSkewState: () =>
+    ipcRenderer.invoke('get-clock-skew-state') as Promise<ClockSkewState>,
   getAppPermissions: () =>
     ipcRenderer.invoke('get-app-permissions') as Promise<AppPermissionsStatus>,
   openPermissionSettings: (id?: PermissionId) =>
