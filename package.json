@@ -28,7 +28,6 @@
     "readdirp": "^5.1.1"
   },
   "devDependencies": {
-    "@electron/asar": "^3.4.1",
     "@electron/fuses": "^1.8.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
@@ -38,8 +37,6 @@
     "electron-vite": "^3.1.0",
     "glob": "^11.0.3",
     "javascript-obfuscator": "^4.1.1",
-    "plist": "^3.1.0",
-    "resedit": "^1.7.2",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
     "vitest": "^3.2.4"
@@ -103,7 +100,6 @@
       "enableEmbeddedAsarIntegrityValidation": true,
       "onlyLoadAppFromAsar": true,
       "resetAdHocDarwinSignature": true
-    },
-    "afterPack": "scripts/rename-asar.js"
+    }
   }
 }
