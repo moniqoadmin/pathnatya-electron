@@ -21,7 +21,7 @@ export interface ScreenCaptureState {
   active: boolean
   appName: string
   /** '' when playback is allowed. */
-  reason: '' | 'recorder' | 'virtual-machine' | 'clock-mismatch'
+  reason: '' | 'recorder' | 'virtual-machine' | 'clock-mismatch' | 'always-on-top'
 }
 
 export interface VmState {
@@ -41,6 +41,27 @@ export interface ScanLogEntry {
   message: string
   engine: 'streaming' | null
   time: number
+}
+
+export interface TopmostWindowInfo {
+  hwnd: string
+  title: string
+  app: string
+  pid: number
+  className: string
+  alwaysOnTop: boolean
+  pinned: boolean
+  toolWindow: boolean
+}
+
+export interface TopmostScanResult {
+  windows: TopmostWindowInfo[]
+  anyPinned: boolean
+  supported: boolean
+  platform: string
+  capturedAt: string
+  details?: string
+  error?: string
 }
 
 export type PermissionId = 'files' | 'accessibility' | 'folders'
@@ -100,6 +121,7 @@ export interface PathnatyaAPI {
   onWindowBlur: (callback: () => void) => () => void
   setDriveScanEnabled: (enabled: boolean) => Promise<void>
   getScreenCaptureState: () => Promise<ScreenCaptureState>
+  getTopmostWindows: () => Promise<TopmostScanResult>
   onScreenCaptureChanged: (callback: (state: ScreenCaptureState) => void) => () => void
   getVmState: () => Promise<VmState>
   getClockSkewState: () => Promise<ClockSkewState>

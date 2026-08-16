@@ -12,6 +12,7 @@ import PreparingVideoPage from './pages/PreparingVideoPage'
 import SetPasswordPage from './pages/SetPasswordPage'
 import VideoLoaderPage from './pages/VideoLoaderPage'
 import TamperWarning from './components/TamperWarning'
+import AlwaysOnTopGate from './components/AlwaysOnTopGate'
 import type { AppPermissionsStatus, PermissionId } from './env'
 
 type Page = 'landing' | 'phone-check' | 'set-password' | 'login' | 'preparing' | 'video'
@@ -38,8 +39,10 @@ export default function App() {
   const [account, setAccount] = useState<Account | null>(null)
   const [phoneCheckResetKey, setPhoneCheckResetKey] = useState(0)
   const [tamperedLocations, setTamperedLocations] = useState<string[] | null>(null)
+  const [alwaysOnTopBlocked, setAlwaysOnTopBlocked] = useState(false)
   const filesTamperedReportedRef = useRef(false)
   const filesTamperedRequestRef = useRef(false)
+  const alwaysOnTopReportedRef = useRef(false)
   const virtualMachineRef = useRef(false)
   const clockMismatchedRef = useRef(false)
 
@@ -86,6 +89,30 @@ export default function App() {
 
   // Runs for the life of the app so login already knows whether the server is reachable.
   useEffect(() => startConnectivityWatch(), [])
+
+  // Block the whole app (login included) when another window is pinned always-on-top.
+  useEffect(() => {
+    const apply = (state: {
+      active: boolean
+      reason: '' | 'recorder' | 'virtual-machine' | 'clock-mismatch' | 'always-on-top'
+    }): void => {
+      const blocked = state.active && state.reason === 'always-on-top'
+      setAlwaysOnTopBlocked(blocked)
+
+      if (blocked) {
+        if (!alwaysOnTopReportedRef.current) {
+          alwaysOnTopReportedRef.current = true
+          reportAppLog('ALWAYS_ON_TOP_DETECTED', true)
+        }
+      } else if (alwaysOnTopReportedRef.current) {
+        alwaysOnTopReportedRef.current = false
+        reportAppLog('ALWAYS_ON_TOP_CLEARED', false)
+      }
+    }
+
+    void window.pathnatya.getScreenCaptureState().then(apply)
+    return window.pathnatya.onScreenCaptureChanged(apply)
+  }, [])
 
   // Main settles these before the window opens, so they are known well before login.
   useEffect(() => {
@@ -198,13 +225,16 @@ export default function App() {
 
   if (permissionsChecking && !permissions) {
     return (
-      <div className="page permissions-page">
-        <header className="page-header">
-          <p className="sanskrit-header">Jay Yogeshwar</p>
-          <h1>Pathnatya 2026</h1>
-          <p className="page-subtitle">Checking permissions…</p>
-        </header>
-      </div>
+      <>
+        <div className="page permissions-page">
+          <header className="page-header">
+            <p className="sanskrit-header">Jay Yogeshwar</p>
+            <h1>Pathnatya 2026</h1>
+            <p className="page-subtitle">Checking permissions…</p>
+          </header>
+        </div>
+        {alwaysOnTopBlocked && <AlwaysOnTopGate />}
+      </>
     )
   }
 
@@ -217,16 +247,19 @@ export default function App() {
     }
 
     return (
-      <PermissionsPage
-        status={gateStatus}
-        checking={permissionsChecking}
-        onRecheck={() => {
-          void refreshPermissions()
-        }}
-        onOpenSettings={(id) => {
-          void handleOpenPermissionSettings(id)
-        }}
-      />
+      <>
+        <PermissionsPage
+          status={gateStatus}
+          checking={permissionsChecking}
+          onRecheck={() => {
+            void refreshPermissions()
+          }}
+          onOpenSettings={(id) => {
+            void handleOpenPermissionSettings(id)
+          }}
+        />
+        {alwaysOnTopBlocked && <AlwaysOnTopGate />}
+      </>
     )
   }
 
@@ -312,6 +345,7 @@ export default function App() {
   return (
     <>
       {content}
+      {alwaysOnTopBlocked && <AlwaysOnTopGate />}
       {tamperedLocations !== null && (
         <TamperWarning locations={tamperedLocations} seconds={TAMPER_WARNING_SECONDS} />
       )}

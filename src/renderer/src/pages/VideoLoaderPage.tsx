@@ -88,7 +88,7 @@ export default function VideoLoaderPage({
   const [captureActive, setCaptureActive] = useState(false)
   const [captureApp, setCaptureApp] = useState('')
   const [captureReason, setCaptureReason] = useState<
-    '' | 'recorder' | 'virtual-machine' | 'clock-mismatch'
+    '' | 'recorder' | 'virtual-machine' | 'clock-mismatch' | 'always-on-top'
   >('')
 
   const showLowNetworkSpeed = isLowDownloadSpeed(networkMbps) && !fromOffline
@@ -256,14 +256,13 @@ export default function VideoLoaderPage({
     }
   }, [])
 
-  // A screen recorder / remote-control app, a VM, or a wrong system clock vs server
-  // GMT means playback stops and the fullscreen gate takes over. Recorders can be
-  // closed; VM and clock-mismatch verdicts do not clear until restart (clock after fix).
+  // A screen recorder / remote-control app, a VM, a wrong system clock, or another
+  // always-on-top window means playback stops and the fullscreen gate takes over.
   useEffect(() => {
     const applyCaptureState = (state: {
       active: boolean
       appName: string
-      reason: '' | 'recorder' | 'virtual-machine' | 'clock-mismatch'
+      reason: '' | 'recorder' | 'virtual-machine' | 'clock-mismatch' | 'always-on-top'
     }): void => {
       captureActiveRef.current = state.active
       setCaptureActive(state.active)
@@ -280,19 +279,20 @@ export default function VideoLoaderPage({
           clockReportedRef.current = true
           reportAppLog('CLOCK_MISMATCH', true)
         }
+      } else if (state.reason === 'always-on-top') {
+        // App-level AlwaysOnTopGate + /logs; here we only pause playback.
       } else {
-        const previous = captureWasActiveRef.current
-        if (previous === null) {
-          captureWasActiveRef.current = state.active
-          if (state.active) {
+        if (state.reason === 'recorder') {
+          const previous = captureWasActiveRef.current
+          if (previous !== true) {
+            captureWasActiveRef.current = true
             reportAppLog('SCREEN_CAPTURE_STARTED', true)
           }
-        } else if (previous !== state.active) {
-          captureWasActiveRef.current = state.active
-          reportAppLog(
-            state.active ? 'SCREEN_CAPTURE_STARTED' : 'SCREEN_CAPTURE_CLEARED',
-            state.active
-          )
+        } else if (captureWasActiveRef.current === true) {
+          captureWasActiveRef.current = false
+          reportAppLog('SCREEN_CAPTURE_CLEARED', false)
+        } else if (captureWasActiveRef.current === null) {
+          captureWasActiveRef.current = false
         }
       }
 
@@ -833,7 +833,10 @@ export default function VideoLoaderPage({
             </>
           )}
 
-          {!isFullscreen && !videoLoading && (!videoError || captureActive) && (
+          {!isFullscreen &&
+            !videoLoading &&
+            captureReason !== 'always-on-top' &&
+            (!videoError || captureActive) && (
             <div className="video-fullscreen-gate" role="alertdialog" aria-live="polite">
               <span className="video-fullscreen-gate-lock" aria-hidden="true">
                 <IconLock />

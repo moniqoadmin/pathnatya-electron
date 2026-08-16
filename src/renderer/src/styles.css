@@ -914,6 +914,68 @@ body {
   background: rgba(2, 6, 23, 0.88);
 }
 
+.always-on-top-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 1900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(2, 6, 23, 0.92);
+  backdrop-filter: blur(6px);
+}
+
+.always-on-top-gate-card {
+  width: min(480px, 100%);
+  padding: 32px 28px 28px;
+  border: 1px solid rgba(254, 202, 202, 0.35);
+  border-radius: 14px;
+  background: #0f172a;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+.always-on-top-gate-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  margin-bottom: 18px;
+  border-radius: 50%;
+  background: rgba(248, 113, 113, 0.14);
+  color: #f87171;
+}
+
+.always-on-top-gate-icon svg {
+  width: 32px;
+  height: 32px;
+  display: block;
+}
+
+.always-on-top-gate-title {
+  margin: 0 0 12px;
+  color: #fecaca;
+  font-size: 1.2rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.always-on-top-gate-desc {
+  margin: 0 0 14px;
+  color: #d5deef;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.always-on-top-gate-hint {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
 .tamper-warning-card {
   width: min(520px, 100%);
   padding: 28px;

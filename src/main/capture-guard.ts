@@ -4,11 +4,17 @@ import { promisify } from 'util'
 import type { BrowserWindow } from 'electron'
 import { getVirtualMachineVerdict } from './vm-guard'
 import { getClockSkewVerdict } from './trusted-time'
+import { findPinnedAlwaysOnTopApp } from './topmost-guard'
 
 const execFileAsync = promisify(execFile)
 
 /** Why playback is blocked, so the renderer can explain it accurately. */
-export type CaptureReason = '' | 'recorder' | 'virtual-machine' | 'clock-mismatch'
+export type CaptureReason =
+  | ''
+  | 'recorder'
+  | 'virtual-machine'
+  | 'clock-mismatch'
+  | 'always-on-top'
 
 export type ScreenCaptureState = {
   active: boolean
@@ -437,11 +443,24 @@ async function detectCapture(): Promise<ScreenCaptureState> {
     return { active: true, appName: 'system clock', reason: 'clock-mismatch' }
   }
 
+  // Another app pinned always-on-top can sit over the video. Window Inspector is
+  // allowed; Pathnatya's own PID is excluded by the scanner.
+  if (process.platform === 'win32') {
+    const pinnedApp = await findPinnedAlwaysOnTopApp(process.pid)
+    if (pinnedApp) {
+      return { active: true, appName: pinnedApp, reason: 'always-on-top' }
+    }
+  }
+
   const running = await listProcessNames()
 
-  // A failed process listing must not block playback; keep the previous verdict.
+  // A failed process listing must not block playback; keep the previous verdict
+  // only when we are already in a recorder block (not a stale always-on-top).
   if (!running) {
-    return currentState
+    if (currentState.reason === 'recorder') {
+      return currentState
+    }
+    return IDLE_STATE
   }
 
   if (process.platform === 'win32') {

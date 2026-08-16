@@ -35,6 +35,7 @@ import {
   startScreenCaptureWatch,
   stopScreenCaptureWatch
 } from './capture-guard'
+import { listWindowsWithTopmost } from './topmost-guard'
 import { detectVirtualMachine, getVirtualMachineVerdict } from './vm-guard'
 import { minimizeOtherApps } from './minimize-others'
 import { createTray, destroyTray, hideWindowToTray, revealWindow } from './tray'
@@ -482,6 +483,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('is-packaged', () => app.isPackaged)
 
   ipcMain.handle('get-screen-capture-state', () => getScreenCaptureState())
+
+  // Window Inspector popover: full snapshot of visible top-level windows + TOPMOST.
+  ipcMain.handle('get-topmost-windows', () => listWindowsWithTopmost(0))
 
   ipcMain.handle('get-vm-state', () => getVirtualMachineVerdict())
 

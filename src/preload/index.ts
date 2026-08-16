@@ -16,7 +16,7 @@ export type HlsOfflineStatus = {
 export type ScreenCaptureState = {
   active: boolean
   appName: string
-  reason: '' | 'recorder' | 'virtual-machine' | 'clock-mismatch'
+  reason: '' | 'recorder' | 'virtual-machine' | 'clock-mismatch' | 'always-on-top'
 }
 
 export type VmState = {
@@ -35,6 +35,27 @@ export type ScanLogEntry = {
   message: string
   engine: 'streaming' | null
   time: number
+}
+
+export type TopmostWindowInfo = {
+  hwnd: string
+  title: string
+  app: string
+  pid: number
+  className: string
+  alwaysOnTop: boolean
+  pinned: boolean
+  toolWindow: boolean
+}
+
+export type TopmostScanResult = {
+  windows: TopmostWindowInfo[]
+  anyPinned: boolean
+  supported: boolean
+  platform: string
+  capturedAt: string
+  details?: string
+  error?: string
 }
 
 export type PermissionId = 'files' | 'accessibility' | 'folders'
@@ -144,6 +165,8 @@ const API = {
     ipcRenderer.invoke('set-drive-scan-enabled', enabled) as Promise<void>,
   getScreenCaptureState: () =>
     ipcRenderer.invoke('get-screen-capture-state') as Promise<ScreenCaptureState>,
+  getTopmostWindows: () =>
+    ipcRenderer.invoke('get-topmost-windows') as Promise<TopmostScanResult>,
   getVmState: () => ipcRenderer.invoke('get-vm-state') as Promise<VmState>,
   getClockSkewState: () =>
     ipcRenderer.invoke('get-clock-skew-state') as Promise<ClockSkewState>,
