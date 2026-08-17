@@ -2,6 +2,7 @@ import { existsSync, promises as fs } from 'fs'
 import { createRequire } from 'module'
 import { join } from 'path'
 import type { Database, SqlJsStatic } from 'sql.js'
+import { UNIQUE_ASAR_NAME } from '../shared/unique-asar-name'
 import { decryptAtRest, encryptAtRest } from './hls-offline-crypto'
 
 const MANIFEST_KEY = 'manifest'
@@ -12,28 +13,60 @@ const TABLE_SQL = `CREATE TABLE IF NOT EXISTS package (
 
 let sqlPromise: Promise<SqlJsStatic> | null = null
 
-function nodeRequire(): NodeRequire {
-  try {
-    // Lazy so vitest can mock electron before first use.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const electron = require('electron') as typeof import('electron')
-    if (typeof electron.app?.getAppPath === 'function') {
-      return createRequire(join(electron.app.getAppPath(), 'package.json'))
-    }
-  } catch {
-    // Not running under Electron yet (tests / early boot).
+function moduleDir(): string {
+  return typeof __dirname === 'string' && __dirname ? __dirname : process.cwd()
+}
+
+/**
+ * sql-asm lives next to the compiled main process, in the unique asar, or in
+ * the project node_modules (tests / unpackaged). Never use app.getAppPath():
+ * the integrity launcher asar does not contain sql.js.
+ */
+function sqlAsmCandidates(): string[] {
+  const dir = moduleDir()
+  const paths = [
+    join(dir, 'vendor', 'sql-asm.js'),
+    join(dir, '..', '..', 'node_modules', 'sql.js', 'dist', 'sql-asm.js'),
+    join(process.cwd(), 'node_modules', 'sql.js', 'dist', 'sql-asm.js')
+  ]
+
+  const resourcesPath = typeof process.resourcesPath === 'string' ? process.resourcesPath : ''
+  if (resourcesPath) {
+    paths.push(
+      join(resourcesPath, UNIQUE_ASAR_NAME, 'dist', 'main', 'vendor', 'sql-asm.js'),
+      join(resourcesPath, UNIQUE_ASAR_NAME, 'node_modules', 'sql.js', 'dist', 'sql-asm.js')
+    )
   }
-  return createRequire(join(process.cwd(), 'package.json'))
+
+  return paths
+}
+
+function loadSqlAsm(): (config?: object) => Promise<SqlJsStatic> {
+  for (const filePath of sqlAsmCandidates()) {
+    if (!existsSync(filePath)) {
+      continue
+    }
+
+    return createRequire(filePath)(filePath) as (config?: object) => Promise<SqlJsStatic>
+  }
+
+  return createRequire(join(process.cwd(), 'package.json'))('sql.js/dist/sql-asm.js') as (
+    config?: object
+  ) => Promise<SqlJsStatic>
 }
 
 /** Load sql.js asm build (no separate .wasm file to pack or locate). */
 async function getSql(): Promise<SqlJsStatic> {
   if (!sqlPromise) {
     sqlPromise = (async () => {
-      const initSqlJs = nodeRequire()('sql.js/dist/sql-asm.js') as (
-        config?: object
-      ) => Promise<SqlJsStatic>
-      return initSqlJs()
+      try {
+        const initSqlJs = loadSqlAsm()
+        return await initSqlJs()
+      } catch (error) {
+        sqlPromise = null
+        const detail = error instanceof Error ? error.message : String(error)
+        throw new Error(`4827 : Video storage engine could not be loaded. ${detail}`.trim())
+      }
     })()
   }
   return sqlPromise

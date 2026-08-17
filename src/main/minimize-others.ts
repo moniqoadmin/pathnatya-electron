@@ -19,26 +19,23 @@ let isStillFocused: (() => boolean) | null = null
 let activeChild: ChildProcess | null = null
 let macPermissionPrompted = false
 
-function ensureMacAccessibilityPermission(): boolean {
-  if (process.platform !== 'darwin') {
-    return true
+function promptMacAccessibilityIfNeeded(): void {
+  if (process.platform !== 'darwin' || macPermissionPrompted) {
+    return
   }
 
-  const shouldPrompt = !macPermissionPrompted
   macPermissionPrompted = true
 
   try {
-    const trusted = systemPreferences.isTrustedAccessibilityClient(shouldPrompt)
+    const trusted = systemPreferences.isTrustedAccessibilityClient(true)
     if (!trusted) {
       console.warn(
         '[mac-permissions] Accessibility permission is required to hide other applications. ' +
           'Enable Pathnatya 2026 in System Settings > Privacy & Security > Accessibility, then restart the app.'
       )
     }
-    return trusted
   } catch (error) {
     console.warn('[mac-permissions] Unable to check Accessibility permission:', error)
-    return false
   }
 }
 
@@ -98,9 +95,9 @@ async function runMinimizeOtherApps(): Promise<void> {
     if (process.platform === 'win32') {
       await withHardDeadline(minimizeOthersWindows(process.pid))
     } else if (process.platform === 'darwin') {
-      if (!ensureMacAccessibilityPermission()) {
-        return
-      }
+      // Electron's trust API often stays false after the user enables Accessibility.
+      // Still attempt the hide; osascript fails quietly when the grant is missing.
+      promptMacAccessibilityIfNeeded()
       await withHardDeadline(hideOthersMac(process.pid))
     }
   } catch (error) {

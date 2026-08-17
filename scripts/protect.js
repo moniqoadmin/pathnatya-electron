@@ -104,7 +104,8 @@ function protectDist() {
   const jsFiles = globSync('**/*.js', {
     cwd: DIST_DIR,
     absolute: true,
-    ignore: ['**/*.min.js']
+    // sql-asm.js is generated Emscripten output — obfuscating it breaks SQLite.
+    ignore: ['**/*.min.js', '**/vendor/**']
   })
 
   for (const file of jsFiles) {

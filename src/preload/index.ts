@@ -181,6 +181,7 @@ const API = {
     ipcRenderer.invoke('open-permission-settings', id) as Promise<void>,
   requestAccessibilityPermission: () =>
     ipcRenderer.invoke('request-accessibility-permission') as Promise<boolean>,
+  relaunchApp: () => ipcRenderer.invoke('relaunch-app') as Promise<void>,
   onScreenCaptureChanged: (callback: (state: ScreenCaptureState) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, state: ScreenCaptureState): void => {
       callback(state)

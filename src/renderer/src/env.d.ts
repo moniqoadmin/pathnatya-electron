@@ -129,6 +129,7 @@ export interface PathnatyaAPI {
   getAppPermissions: () => Promise<AppPermissionsStatus>
   openPermissionSettings: (id?: PermissionId) => Promise<void>
   requestAccessibilityPermission: () => Promise<boolean>
+  relaunchApp: () => Promise<void>
   onAppLog: (
     callback: (payload: {
       event: string
