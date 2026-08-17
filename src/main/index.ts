@@ -655,6 +655,11 @@ app.whenReady().then(async () => {
     app.setAppUserModelId('com.pathnatya.app')
   }
 
+  // Force direct connection: ignore Windows Registry / system proxy configurations
+  await session.defaultSession.setProxy({
+    mode: 'direct'
+  })
+
   const allowed = await enforceDesktopLaptopOnly()
   if (!allowed) {
     return
