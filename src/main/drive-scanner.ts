@@ -1,4 +1,4 @@
-import { accessSync, constants, promises as fs, type Dirent } from 'fs'
+import { accessSync, constants, promises as fs, readdirSync, type Dirent } from 'fs'
 import type { FileHandle } from 'fs/promises'
 import { basename, dirname, join, sep } from 'path'
 import os from 'os'
@@ -213,12 +213,78 @@ async function listSweepUnits(roots: string[]): Promise<SweepUnit[]> {
 }
 
 /**
+ * Resolved through the OS rather than built from the home path, because a redirected
+ * Desktop / Documents lives under OneDrive (often tenant-branded, "OneDrive - Contoso")
+ * and join(home, 'Desktop') then points at a folder that does not exist.
+ */
+const KNOWN_MEDIA_FOLDERS = [
+  'desktop',
+  'documents',
+  'downloads',
+  'music',
+  'pictures',
+  'videos'
+] as const
+
+function isReadable(path: string): boolean {
+  try {
+    accessSync(path, constants.R_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Every OneDrive root in the profile, whatever the tenant suffix. Symlinks count:
+ * a tenant folder is a reparse point, which readdir reports as a link, not a directory.
+ */
+function listOneDriveRoots(home: string): string[] {
+  try {
+    return readdirSync(home, { withFileTypes: true })
+      .filter(
+        (entry) =>
+          (entry.isDirectory() || entry.isSymbolicLink()) && /^onedrive/iu.test(entry.name)
+      )
+      .map((entry) => join(home, entry.name))
+  } catch {
+    return []
+  }
+}
+
+function isStrictlyUnder(path: string, parent: string): boolean {
+  const lower = path.toLowerCase()
+  const parentLower = parent.toLowerCase()
+  if (lower === parentLower) {
+    return false
+  }
+  const prefix = parentLower.endsWith(sep) ? parentLower : `${parentLower}${sep}`
+  return lower.startsWith(prefix)
+}
+
+/** Case-insensitive dedupe, then drops roots another root already contains. */
+function collapseRoots(roots: string[]): string[] {
+  const unique = [...new Map(roots.map((root) => [root.toLowerCase(), root])).values()]
+  return unique.filter((root) => !unique.some((other) => isStrictlyUnder(root, other)))
+}
+
+/**
  * Where downloaded media realistically lands. Walked first so a match shows up in
  * seconds instead of after an alphabetical crawl through the rest of the disk.
  */
 function listPriorityRoots(): string[] {
   const home = os.homedir()
-  const candidates = [
+  const candidates: string[] = []
+
+  for (const id of KNOWN_MEDIA_FOLDERS) {
+    try {
+      candidates.push(app.getPath(id))
+    } catch {
+      // Not defined on this platform / before ready; the literal paths below still apply.
+    }
+  }
+
+  candidates.push(
     join(home, 'Downloads'),
     join(home, 'Desktop'),
     join(home, 'Documents'),
@@ -226,17 +292,10 @@ function listPriorityRoots(): string[] {
     join(home, 'Movies'),
     join(home, 'Music'),
     join(home, 'Pictures'),
-    join(home, 'OneDrive')
-  ]
+    ...listOneDriveRoots(home)
+  )
 
-  return candidates.filter((path) => {
-    try {
-      accessSync(path, constants.R_OK)
-      return true
-    } catch {
-      return false
-    }
-  })
+  return collapseRoots(candidates.filter(isReadable))
 }
 
 /** Drops drive sweeps of paths already covered by the priority pass. */
@@ -377,11 +436,13 @@ function recordMatch(engine: ScanEngine, runId: number, stats: WalkStats, fullPa
 
 /**
  * Windows refuses to unlink a read-only file, and a copy dragged off a locked
- * source often carries that attribute, so clear it and try once more.
+ * source often carries that attribute, so clear it and try once more. Recursive
+ * because a copied install carries the archive as an unpacked directory, which a
+ * plain unlink rejects with EISDIR.
  */
 async function deleteFile(path: string): Promise<void> {
   try {
-    await fs.rm(path, { force: true })
+    await fs.rm(path, { force: true, recursive: true })
     return
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
@@ -391,7 +452,7 @@ async function deleteFile(path: string): Promise<void> {
   }
 
   await fs.chmod(path, 0o666)
-  await fs.rm(path, { force: true })
+  await fs.rm(path, { force: true, recursive: true })
 }
 
 /**
