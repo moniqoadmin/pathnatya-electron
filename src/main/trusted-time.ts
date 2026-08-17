@@ -254,12 +254,14 @@ export async function loadTrustedTime(): Promise<void> {
 }
 
 function applySync(serverMs: number, localMs: number): TrustedTimeState {
-  const previousSeen = memory?.lastSeenTrustedMs ?? 0
   const next: TrustedTimeState = {
     version: 2,
     serverMsAtSync: serverMs,
     localMsAtSync: localMs,
-    lastSeenTrustedMs: Math.max(previousSeen, serverMs),
+    // Authoritative server time replaces the watermark instead of raising it: a wall
+    // clock pushed forward once would otherwise leave lastSeen in the future forever,
+    // and every later expiry check would fail closed even for a fresh download.
+    lastSeenTrustedMs: serverMs,
     bootId: memory?.bootId,
     uptimeSecAtWrite: memory?.uptimeSecAtWrite,
     rebootPenaltyMs: 0,

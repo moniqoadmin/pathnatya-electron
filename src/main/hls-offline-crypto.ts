@@ -40,6 +40,20 @@ function keyFilePath(): string {
   return join(app.getPath('userData'), KEY_FILE)
 }
 
+/** Removes the sealed package key so leftover ciphertext cannot be reopened. */
+export async function deleteAtRestKeyFile(): Promise<void> {
+  const path = keyFilePath()
+  try {
+    await fs.rm(path, { force: true })
+    offlineCryptoLog('deleted at-rest package key', { path })
+  } catch (error) {
+    offlineCryptoLog('could not delete at-rest package key', {
+      path,
+      error: error instanceof Error ? error.message : String(error)
+    })
+  }
+}
+
 /** Mix the live NIC MAC into the raw package key (never persists the MAC itself). */
 function bindKeyToMac(rawKey: Buffer, mac: string): Buffer {
   return createHash('sha256')

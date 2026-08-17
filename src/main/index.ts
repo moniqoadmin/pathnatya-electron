@@ -317,6 +317,8 @@ function createWindow(): void {
     height: 720,
     minWidth: 900,
     minHeight: 600,
+    resizable: false,
+    maximizable: false,
     show: false,
     autoHideMenuBar: true,
     title: 'Pathnatya 2026',
@@ -349,6 +351,29 @@ function createWindow(): void {
   mainWindow.on('leave-html-full-screen', applyContentProtection)
   mainWindow.on('show', applyContentProtection)
   mainWindow.on('restore', applyContentProtection)
+
+  // A non-resizable window has its min/max size pinned to the current bounds, which
+  // also blocks it from growing to fill the screen. Resizing is re-enabled only while
+  // fullscreen so video playback still works, and locked again on the way out.
+  const allowResizeWhileFullscreen = (): void => {
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.setResizable(true)
+    }
+  }
+
+  const lockSizeAfterFullscreen = (): void => {
+    setTimeout(() => {
+      if (!mainWindow.isDestroyed() && !mainWindow.isFullScreen()) {
+        mainWindow.setResizable(false)
+        mainWindow.setMaximizable(false)
+      }
+    }, 0)
+  }
+
+  mainWindow.on('enter-full-screen', allowResizeWhileFullscreen)
+  mainWindow.on('enter-html-full-screen', allowResizeWhileFullscreen)
+  mainWindow.on('leave-full-screen', lockSizeAfterFullscreen)
+  mainWindow.on('leave-html-full-screen', lockSizeAfterFullscreen)
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()

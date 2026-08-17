@@ -18,6 +18,7 @@ import {
   type MemoryVideoPackage,
   type MemoryVideoStatus
 } from './hls-memory'
+import { deleteAtRestKeyFile } from './hls-offline-crypto'
 import {
   OFFLINE_VIDEO_TTL_MS,
   assertOfflinePackageIntegrity,
@@ -742,8 +743,9 @@ export function clearMemoryHls(): void {
 }
 
 /**
- * Duplicate-copy / asar tamper: drop playback, the RAM package, and the on-disk
- * folder. Always erases the folder — unlike logout, this must not wait for online.
+ * Duplicate-copy / asar tamper: drop playback, the RAM package, the on-disk
+ * folder, and the at-rest key. Always erases — unlike logout, this must not
+ * wait for online.
  */
 export async function wipeDownloadedVideo(): Promise<void> {
   cancelHlsOfflineDownload()
@@ -751,6 +753,7 @@ export async function wipeDownloadedVideo(): Promise<void> {
   clearPreparedHls()
   clearMemoryHls()
   await deleteOfflineVideo()
+  await deleteAtRestKeyFile()
 }
 
 export { getOfflineVideoStatus, deleteOfflineVideo, currentDownloadProgress, getMemoryVideoStatus }

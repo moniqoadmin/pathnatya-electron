@@ -256,6 +256,27 @@ describe('trusted-time', () => {
     )
   })
 
+  it('heals a future watermark on server sync so a fresh package is not expired', async () => {
+    const serverMs = 1_700_000_000_000
+    const thirtyDays = 30 * 24 * 60 * 60 * 1000
+    const tenDays = 10 * 24 * 60 * 60 * 1000
+
+    // Wall clock pushed 30 days forward while running, raising the persisted watermark.
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(serverMs)
+    __seedTrustedTimeForTests(serverMs, serverMs)
+    nowSpy.mockReturnValue(serverMs + thirtyDays)
+    expect(readTrustedNow().ok).toBe(true)
+    await __flushTrustedTimePersistForTests()
+
+    // Clock corrected, then a download syncs server time and stamps expiry 10 days out.
+    nowSpy.mockReturnValue(serverMs)
+    mockServerTime(serverMs)
+    const syncedMs = await syncTrustedTime()
+
+    expect(readTrustedNow()).toEqual({ ok: true, nowMs: expect.any(Number) })
+    expect(isTrustedExpired(new Date(syncedMs + tenDays).toISOString())).toBe(false)
+  })
+
   it('does not penalize a same-boot reload', async () => {
     const serverMs = 1_700_000_000_000
     mockServerTime(serverMs)
