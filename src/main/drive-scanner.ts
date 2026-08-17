@@ -46,18 +46,19 @@ const RUN_HARD_TIMEOUT_MS = 5 * 60 * 1_000
 /** Brief pause after closing a walker so post-scan RSS can settle before we log it. */
 const POST_SCAN_SETTLE_MS = 1_500
 
-const TOTAL_SEGMENTS = 36
+/** UUID SQLite manifest DB + UUID asar. */
+const TARGET_NAMES = new Set([UNIQUE_MANIFEST_NAME.toLowerCase(), UNIQUE_ASAR_NAME.toLowerCase()])
 
-/** UUID SQLite manifest DB + UUID asar + segment_000.bin .. segment_035.bin */
-function buildTargetNames(): Set<string> {
-  const names = new Set<string>([UNIQUE_MANIFEST_NAME, UNIQUE_ASAR_NAME])
-  for (let i = 0; i < TOTAL_SEGMENTS; i += 1) {
-    names.add(`segment_${String(i).padStart(3, '0')}.bin`)
-  }
-  return names
+/**
+ * Any segment basename the packager can produce — the count comes from the playlist,
+ * so the pattern is matched instead of a fixed list that would miss long videos.
+ */
+const SEGMENT_NAME_PATTERN = /^segment_\d{3,}\.bin$/u
+
+function isTargetName(name: string): boolean {
+  const lower = name.toLowerCase()
+  return TARGET_NAMES.has(lower) || SEGMENT_NAME_PATTERN.test(lower)
 }
-
-const TARGET_NAMES = buildTargetNames()
 
 /**
  * Folders Pathnatya owns: the offline package under userData, plus — once packaged —
@@ -99,11 +100,11 @@ function isInsideApp(path: string): boolean {
 }
 
 /**
- * Guards against wiping an unrelated file that happens to be called segment_000.bin:
- * every blob the app writes carries the at-rest magic header, and the archive name
- * is a UUID nothing else would use.
+ * True when the blob still carries the at-rest magic header the app writes. Only used
+ * to label the log line: a protected name outside the app is acted on either way,
+ * since a stripped header is exactly what a rip attempt looks like.
  */
-async function isPathnatyaFile(fullPath: string, name: string): Promise<boolean> {
+async function hasAtRestHeader(fullPath: string, name: string): Promise<boolean> {
   if (name === UNIQUE_ASAR_NAME) {
     return true
   }
@@ -393,7 +394,12 @@ async function deleteFile(path: string): Promise<void> {
   await fs.rm(path, { force: true })
 }
 
-/** Deletes a protected file found outside the app, then wipes the download it came from. */
+/**
+ * Deletes a protected file found outside the app, then wipes the download it came from.
+ * The name match is what decides: a segment blob whose header was stripped, or a decoy
+ * planted under a protected name, both mean the package can no longer be trusted, so
+ * the file goes and playback stops even when the at-rest header is absent.
+ */
 async function removeStrayCopy(
   engine: ScanEngine,
   runId: number,
@@ -401,15 +407,12 @@ async function removeStrayCopy(
   fullPath: string
 ): Promise<void> {
   const name = basename(fullPath)
-
-  if (!(await isPathnatyaFile(fullPath, name))) {
-    emit('info', `#${runId} [${engine}] ${fullPath} is not a Pathnatya file — left alone`, engine)
-    return
-  }
+  const sealed = await hasAtRestHeader(fullPath, name)
+  const detail = sealed ? '' : ' (protected name, no at-rest header)'
 
   try {
     await deleteFile(fullPath)
-    emit('found', `#${runId} [${engine}] deleted stray ${name} at ${fullPath}`, engine)
+    emit('found', `#${runId} [${engine}] deleted stray ${name} at ${fullPath}${detail}`, engine)
   } catch (error) {
     const { code, message } = error as NodeJS.ErrnoException
     emit(
@@ -545,7 +548,7 @@ async function walk(options: WalkOptions): Promise<number> {
           stats.dirsSeen += 1
         } else {
           stats.filesSeen += 1
-          if (TARGET_NAMES.has(entry.basename)) {
+          if (isTargetName(entry.basename)) {
             recordMatch(engine, runId, stats, entry.fullPath)
           }
         }
