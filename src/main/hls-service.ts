@@ -373,6 +373,37 @@ async function decryptPayload(index: number, payload: Buffer, iv: Buffer | null)
   }
 }
 
+function isNetworkOffline(): boolean {
+  try {
+    return net.isOnline() === false
+  } catch {
+    return false
+  }
+}
+
+/**
+ * A package left half-wiped (tamper cleanup, restored account, interrupted download)
+ * fails verification. Discarding it and loading from the CDN beats stranding the user
+ * on a contact-admin error — but only when the CDN is actually reachable, since
+ * offline there is nothing to fall back to.
+ */
+async function verifyOfflinePackageOrDiscard(manifest: OfflineVideoManifest): Promise<boolean> {
+  try {
+    await assertOfflinePackageIntegrity(manifest)
+    return true
+  } catch (error) {
+    if (isNetworkOffline()) {
+      throw error
+    }
+
+    console.warn('[hls-offline] unusable offline package discarded — falling back to online', {
+      message: error instanceof Error ? error.message : String(error)
+    })
+    await deleteOfflineVideo()
+    return false
+  }
+}
+
 export async function prepareHlsVideo(sourceUrl = DEFAULT_HLS_SOURCE): Promise<PreparedHls> {
   // Clears playback buffers only — the RAM package survives logout / re-prepare.
   clearPreparedHls()
@@ -387,15 +418,15 @@ export async function prepareHlsVideo(sourceUrl = DEFAULT_HLS_SOURCE): Promise<P
       expiresAt: offline.expiresAt
     })
     // Decrypt each segment in memory, strip headers, then compare hashes before playback.
-    await assertOfflinePackageIntegrity(offline)
-
-    return applyResolvedPlaylist(
-      {
-        segments: segmentsFromOfflineManifest(offline),
-        rewritten: offline.rewrittenPlaylist
-      },
-      { fromOffline: true, expiresAt: offline.expiresAt }
-    )
+    if (await verifyOfflinePackageOrDiscard(offline)) {
+      return applyResolvedPlaylist(
+        {
+          segments: segmentsFromOfflineManifest(offline),
+          rewritten: offline.rewrittenPlaylist
+        },
+        { fromOffline: true, expiresAt: offline.expiresAt }
+      )
+    }
   }
 
   const memory = getMemoryVideoPackage()

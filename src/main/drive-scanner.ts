@@ -1,4 +1,4 @@
-import { accessSync, constants, promises as fs } from 'fs'
+import { accessSync, constants, promises as fs, type Dirent } from 'fs'
 import type { FileHandle } from 'fs/promises'
 import { basename, dirname, join, sep } from 'path'
 import os from 'os'
@@ -27,11 +27,21 @@ const SCAN_INTERVAL_MS = 15_000
 const PROGRESS_LOG_MS = 1_000
 
 /**
- * Budget for the whole-drive sweep only. The priority pass (user folders) always
- * runs to completion, so downloads are found even when the sweep is cut short.
+ * Budget for one whole-drive sweep. The priority pass (user folders) always runs to
+ * completion, and a cut-short sweep resumes at the next chunk on the following run,
+ * so the budget caps a single run rather than the area the scanner ever reaches.
  */
 const FILE_BUDGET = 400_000
 const TIME_BUDGET_MS = 120_000
+
+/**
+ * A readdirp stream destroyed mid-flight does not reliably emit end/close, which used
+ * to leave the walk promise pending and the 15s loop permanently skipping ticks.
+ */
+const DESTROY_SETTLE_MS = 3_000
+
+/** Last resort: force the walker closed so one wedged run cannot stop all later ones. */
+const RUN_HARD_TIMEOUT_MS = 5 * 60 * 1_000
 
 /** Brief pause after closing a walker so post-scan RSS can settle before we log it. */
 const POST_SCAN_SETTLE_MS = 1_500
@@ -162,6 +172,45 @@ function listDriveRoots(): string[] {
   return roots
 }
 
+type SweepUnit = {
+  path: string
+  /** 0 walks only the entries directly inside path; undefined walks the whole subtree. */
+  depth?: number
+}
+
+/**
+ * Splits the sweep into resumable chunks — each drive root shallowly, then each of its
+ * top-level folders — so a budget cut can continue at the next chunk instead of
+ * re-crawling the same alphabetical prefix (and never reaching D:, E:, USB) every run.
+ */
+async function listSweepUnits(roots: string[]): Promise<SweepUnit[]> {
+  const units: SweepUnit[] = []
+
+  for (const root of roots) {
+    units.push({ path: root, depth: 0 })
+
+    let entries: Dirent[] = []
+    try {
+      entries = await fs.readdir(root, { withFileTypes: true })
+    } catch {
+      continue
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue
+      }
+      const fullPath = join(root, entry.name)
+      if (shouldPruneDir(fullPath)) {
+        continue
+      }
+      units.push({ path: fullPath })
+    }
+  }
+
+  return units
+}
+
 /**
  * Where downloaded media realistically lands. Walked first so a match shows up in
  * seconds instead of after an alphabetical crawl through the rest of the disk.
@@ -216,9 +265,13 @@ function sleep(ms: number): Promise<void> {
 let mainWindowRef: BrowserWindow | null = null
 let intervalId: NodeJS.Timeout | null = null
 let activeStream: ReaddirpStream | null = null
+/** Destroys the live walker and guarantees its promise settles. */
+let abortActiveStream: (() => void) | null = null
 let scanning = false
 let stopRequested = false
 let runCount = 0
+/** Sweep chunk the next run resumes at, so successive runs cover the whole disk. */
+let sweepResumePath: string | null = null
 
 function emit(level: ScanLogLevel, message: string, engine: ScanEngine | null = null): void {
   const entry: ScanLogEntry = { level, message, engine, time: Date.now() }
@@ -262,11 +315,11 @@ function entriesSeen(stats: WalkStats): number {
   return stats.dirsSeen + stats.filesSeen
 }
 
-function budgetExceeded(stats: WalkStats, startedAt: number): string | null {
-  if (entriesSeen(stats) >= FILE_BUDGET) {
+function budgetExceeded(stats: WalkStats, budget: WalkBudget): string | null {
+  if (entriesSeen(stats) - budget.entriesAtStart >= FILE_BUDGET) {
     return `file budget ${FILE_BUDGET}`
   }
-  if (Date.now() - startedAt >= TIME_BUDGET_MS) {
+  if (Date.now() - budget.startedAt >= TIME_BUDGET_MS) {
     return `time budget ${TIME_BUDGET_MS / 1000}s`
   }
   return null
@@ -407,35 +460,47 @@ function isTransientFsError(message: string): boolean {
   return /EACCES|EPERM|EBUSY|ENOENT|EMFILE|ENFILE|EINVAL|ELOOP/i.test(message)
 }
 
+type WalkBudget = {
+  startedAt: number
+  /** Entry count when this phase began, so the priority pass does not spend the budget. */
+  entriesAtStart: number
+}
+
 type WalkOptions = {
   engine: ScanEngine
   runId: number
   phase: string
-  roots: string[]
+  units: SweepUnit[]
   stats: WalkStats
-  /** Only the whole-drive sweep is budget-limited. */
-  budgeted: boolean
-  startedAt: number
+  /** Only the whole-drive sweep is budget-limited; null runs to completion. */
+  budget: WalkBudget | null
   /** Paths already covered by an earlier phase. */
   skipUnder: string[]
 }
 
-/** Streaming walk via readdirp — no retained tree, near-constant memory. */
-async function walk(options: WalkOptions): Promise<void> {
-  const { engine, runId, phase, roots, stats, budgeted, startedAt, skipUnder } = options
+/**
+ * Streaming walk via readdirp — no retained tree, near-constant memory. Returns how
+ * many units were consumed so a budgeted phase can resume at the next one.
+ */
+async function walk(options: WalkOptions): Promise<number> {
+  const { engine, runId, phase, units, stats, budget, skipUnder } = options
   const maybeLogProgress = createProgressTracker(engine, runId, phase, stats)
 
-  for (const root of roots) {
+  let consumed = 0
+
+  for (const unit of units) {
     if (stopRequested || stats.stoppedEarly) {
       break
     }
+    consumed += 1
 
     await new Promise<void>((resolve) => {
-      const stream = readdirp(root, {
+      const stream = readdirp(unit.path, {
         type: 'files_directories',
         alwaysStat: false,
         lstat: false,
         highWaterMark: 64,
+        depth: unit.depth,
         directoryFilter: (entry) => {
           if (shouldPruneDir(entry.fullPath)) {
             return false
@@ -446,17 +511,34 @@ async function walk(options: WalkOptions): Promise<void> {
 
       activeStream = stream
       let done = false
+      let destroyTimer: NodeJS.Timeout | null = null
 
       const settle = (): void => {
         if (done) {
           return
         }
         done = true
+        if (destroyTimer) {
+          clearTimeout(destroyTimer)
+          destroyTimer = null
+        }
         if (activeStream === stream) {
           activeStream = null
+          abortActiveStream = null
         }
         resolve()
       }
+
+      /** Destroy is not guaranteed to emit end/close, so settle on a timer regardless. */
+      const destroyAndSettle = (): void => {
+        stream.destroy()
+        if (!done && !destroyTimer) {
+          destroyTimer = setTimeout(settle, DESTROY_SETTLE_MS)
+          destroyTimer.unref?.()
+        }
+      }
+
+      abortActiveStream = destroyAndSettle
 
       stream.on('data', (entry) => {
         if (entry.dirent?.isDirectory()) {
@@ -469,15 +551,20 @@ async function walk(options: WalkOptions): Promise<void> {
         }
         maybeLogProgress()
 
-        if (!budgeted) {
+        if (stopRequested) {
+          destroyAndSettle()
           return
         }
-        const reason = budgetExceeded(stats, startedAt)
+
+        if (!budget) {
+          return
+        }
+        const reason = budgetExceeded(stats, budget)
         if (reason && !stats.stoppedEarly) {
           stats.stoppedEarly = true
           stats.stopReason = reason
           emit('info', `#${runId} [${engine}] ${phase}: hit ${reason} — closing stream`, engine)
-          stream.destroy()
+          destroyAndSettle()
         }
       })
 
@@ -503,6 +590,8 @@ async function walk(options: WalkOptions): Promise<void> {
       }
     })
   }
+
+  return consumed
 }
 
 function describeMatches(stats: WalkStats): string {
@@ -544,10 +633,9 @@ async function runScan(): Promise<void> {
     engine,
     runId,
     phase: 'priority',
-    roots: priority,
+    units: priority.map((path) => ({ path })),
     stats,
-    budgeted: false,
-    startedAt,
+    budget: null,
     skipUnder: []
   })
 
@@ -559,18 +647,35 @@ async function runScan(): Promise<void> {
     engine
   )
 
-  // Phase 2: the rest of the disk, budget-limited.
+  // Phase 2: the rest of the disk, budget-limited and resumed where the last run stopped.
   if (!stopRequested) {
-    await walk({
+    const units = await listSweepUnits(drives)
+    const resumeIndex = sweepResumePath
+      ? Math.max(0, units.findIndex((unit) => unit.path === sweepResumePath))
+      : 0
+    const remaining = units.slice(resumeIndex)
+
+    emit(
+      'info',
+      `#${runId} [${engine}] sweep resuming at chunk ${resumeIndex + 1}/${units.length}` +
+        ` (${remaining[0]?.path ?? 'none'})`,
+      engine
+    )
+
+    const consumed = await walk({
       engine,
       runId,
       phase: 'sweep',
-      roots: drives,
+      units: remaining,
       stats,
-      budgeted: true,
-      startedAt,
+      budget: { startedAt: Date.now(), entriesAtStart: entriesSeen(stats) },
       skipUnder: priority
     })
+
+    // Always move past the chunk that was cut short: re-entering it would burn every
+    // later budget on the same folder. The cursor wraps, so it is covered next cycle.
+    const nextIndex = resumeIndex + consumed
+    sweepResumePath = nextIndex < units.length ? units[nextIndex].path : null
   }
 
   await Promise.allSettled(stats.pending)
@@ -601,6 +706,17 @@ async function tick(): Promise<void> {
 
   scanning = true
   stopRequested = false
+
+  const watchdog = setTimeout(() => {
+    emit(
+      'error',
+      `Scan exceeded ${RUN_HARD_TIMEOUT_MS / 1000}s — forcing the walker closed.`,
+      'streaming'
+    )
+    abortActiveStream?.()
+  }, RUN_HARD_TIMEOUT_MS)
+  watchdog.unref?.()
+
   try {
     emit('info', 'Scan tick → streaming engine')
     await runScan()
@@ -610,6 +726,7 @@ async function tick(): Promise<void> {
       emit('error', `Scan crashed: ${message}`, 'streaming')
     }
   } finally {
+    clearTimeout(watchdog)
     scanning = false
   }
 }
@@ -631,11 +748,15 @@ export function stopDriveScanLoop(): void {
     intervalId = null
   }
 
-  if (activeStream) {
+  if (abortActiveStream) {
+    abortActiveStream()
+    abortActiveStream = null
+  } else if (activeStream) {
     activeStream.destroy()
-    activeStream = null
   }
+  activeStream = null
 
   scanning = false
+  sweepResumePath = null
   mainWindowRef = null
 }

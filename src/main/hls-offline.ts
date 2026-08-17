@@ -444,16 +444,54 @@ export async function writeOfflineManifest(manifest: OfflineVideoManifest): Prom
   await writeSealedManifestBlob(manifestPath(), sealed)
 }
 
+/** Windows keeps brief locks on files the app just read; a couple of retries clears them. */
+async function removePath(target: string, recursive = false): Promise<void> {
+  let lastError: unknown
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await fs.rm(target, { force: true, recursive })
+      return
+    } catch (error) {
+      lastError = error
+      await new Promise((resolve) => setTimeout(resolve, 120 * attempt))
+    }
+  }
+
+  throw lastError
+}
+
 export async function deleteOfflineVideo(): Promise<void> {
-  const root = packageRoot()
-  if (existsSync(root)) {
-    await fs.rm(root, { recursive: true, force: true })
+  // The manifest DB is what makes a package look playable, so it goes first: if a
+  // later step fails the leftovers are inert instead of metadata promising segments
+  // that are no longer on disk.
+  let manifestError: unknown = null
+  try {
+    await removePath(manifestPath())
+  } catch (error) {
+    manifestError = error
   }
 
   try {
-    await fs.rm(integrityPath(), { force: true })
+    await removePath(integrityPath())
   } catch {
     // Best-effort cleanup of the separate integrity file.
+  }
+
+  let rootError: unknown = null
+  const root = packageRoot()
+  if (existsSync(root)) {
+    try {
+      await removePath(root, true)
+    } catch (error) {
+      rootError = error
+    }
+  }
+
+  // Surfaced to the renderer, which reads EPERM on hls-offline as tampering.
+  const failure = manifestError ?? rootError
+  if (failure) {
+    throw failure
   }
 }
 
@@ -483,7 +521,30 @@ export async function purgeExpiredOfflineVideo(): Promise<void> {
     const manifest = await readOfflineManifest()
     // null means missing/expired/corrupt — readOfflineManifest already wipes expiry;
     // wipe leftover corrupt packages that failed decrypt/parse without expiry handling.
-    if (!manifest && (await pathExists(manifestPath()))) {
+    if (!manifest) {
+      if (await pathExists(manifestPath())) {
+        await deleteOfflineVideo()
+      }
+      return
+    }
+
+    // Metadata that outlived its segments (tamper wipe, interrupted download, locked
+    // file during cleanup) would otherwise fail the integrity check at login and leave
+    // the user on the contact-admin error with no way back.
+    if (!(await allSegmentFilesPresent(manifest))) {
+      offlineLog('purging package with missing segments or integrity file', {
+        segmentCount: manifest.segments.length
+      })
+      await deleteOfflineVideo()
+      return
+    }
+
+    const integrity = await readOfflineIntegrity()
+    if (!integrity || integrity.hashes.length !== manifest.segments.length) {
+      offlineLog('purging package with incomplete integrity hashes', {
+        expected: manifest.segments.length,
+        actual: integrity?.hashes.length ?? 0
+      })
       await deleteOfflineVideo()
     }
   } catch {

@@ -42,6 +42,7 @@ const {
   assertOfflinePackageIntegrity,
   deleteOfflineVideo,
   hashOfflinePayload,
+  purgeExpiredOfflineVideo,
   readOfflineManifest,
   readOfflineSegment,
   writeOfflineIntegrity,
@@ -204,6 +205,34 @@ describe('hls-offline at-rest storage', () => {
     await writeOfflineManifest(manifest)
 
     await expect(assertOfflinePackageIntegrity(manifest)).resolves.toBeUndefined()
+  })
+
+  it('purges manifest metadata left behind when the segments were wiped', async () => {
+    const digest = await writeOfflineSegment(0, Buffer.from('wiped-later'))
+    await writeOfflineIntegrity([digest])
+
+    const manifest = {
+      version: 1 as const,
+      sourceUrl: 'https://pathnatya-video-cdn.b-cdn.net/video-001/playlist.m3u8',
+      downloadedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      totalDurationSeconds: 1,
+      segmentCount: 1,
+      rewrittenPlaylist: '#EXTM3U\n',
+      segments: [{ index: 0, durationSeconds: 1, iv: null, file: 'segment_000.bin' }]
+    }
+    await writeOfflineManifest(manifest)
+
+    // A tamper wipe that removed the chunks but not the manifest DB.
+    await rm(join(userDataDir, 'hls-offline', 'segments'), { recursive: true, force: true })
+
+    await purgeExpiredOfflineVideo()
+
+    await expect(
+      readFile(join(userDataDir, 'hls-offline', UNIQUE_MANIFEST_NAME))
+    ).rejects.toThrow()
+    await expect(readFile(join(userDataDir, 'hls-offline.integrity'))).rejects.toThrow()
+    await expect(readOfflineManifest()).resolves.toBeNull()
   })
 
   it('fails integrity when a decrypted segment does not match its hash', async () => {
