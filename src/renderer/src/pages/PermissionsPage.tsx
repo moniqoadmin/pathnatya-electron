@@ -6,6 +6,7 @@ interface PermissionsPageProps {
   checking: boolean
   onRecheck: () => void
   onOpenSettings: (id?: PermissionId) => void
+  onRelaunch?: () => void
 }
 
 function PermissionRow({
@@ -44,7 +45,8 @@ export default function PermissionsPage({
   status,
   checking,
   onRecheck,
-  onOpenSettings
+  onOpenSettings,
+  onRelaunch
 }: PermissionsPageProps) {
   const [platformLabel, setPlatformLabel] = useState('this device')
 
@@ -54,6 +56,7 @@ export default function PermissionsPage({
   }, [])
 
   const missing = status.permissions.filter((item) => item.required && !item.granted)
+  const needsAccessibilityRestart = missing.some((item) => item.id === 'accessibility')
 
   return (
     <div className="page permissions-page">
@@ -67,7 +70,7 @@ export default function PermissionsPage({
         <h2>Permissions required on {platformLabel}</h2>
         <p className="permissions-lead">
           Pathnatya needs the permissions below before you can continue. Turn each one on in system
-          settings, then tap Check again.
+          settings, then tap Check again. If Accessibility is already on, tap Restart Pathnatya.
         </p>
 
         <ul className="permission-list">
@@ -78,9 +81,11 @@ export default function PermissionsPage({
 
         {missing.length > 0 && (
           <p className="form-error permissions-error" role="status">
-            {missing.length === 1
-              ? '1 permission is still missing.'
-              : `${missing.length} permissions are still missing.`}
+            {needsAccessibilityRestart
+              ? 'If Accessibility is already on, tap Restart Pathnatya. Closing the window is not enough.'
+              : missing.length === 1
+                ? '1 permission is still missing.'
+                : `${missing.length} permissions are still missing.`}
           </p>
         )}
       </section>
@@ -94,7 +99,17 @@ export default function PermissionsPage({
         >
           Open system settings
         </button>
-        <button type="button" className="btn btn-primary" onClick={onRecheck} disabled={checking}>
+        {needsAccessibilityRestart && onRelaunch && (
+          <button type="button" className="btn btn-primary" onClick={onRelaunch} disabled={checking}>
+            Restart Pathnatya
+          </button>
+        )}
+        <button
+          type="button"
+          className={needsAccessibilityRestart ? 'btn btn-secondary' : 'btn btn-primary'}
+          onClick={onRecheck}
+          disabled={checking}
+        >
           {checking ? 'Checking…' : 'Check again'}
         </button>
       </div>

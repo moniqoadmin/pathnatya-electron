@@ -57,6 +57,7 @@ import {
   cleanupPermissionProbe,
   getAppPermissionsStatus,
   openPermissionSettings,
+  relaunchApp,
   requestAccessibilityPermission,
   type PermissionId
 } from './permissions-guard'
@@ -515,6 +516,10 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('request-accessibility-permission', () => requestAccessibilityPermission())
+
+  ipcMain.handle('relaunch-app', () => {
+    relaunchApp()
+  })
 
   // Drive streaming scan — started only when login returns chokidar: true.
   ipcMain.handle('set-drive-scan-enabled', (event, enabled: boolean) => {

@@ -12,7 +12,7 @@ import {
   VIDEO_FILES_TAMPERED_MESSAGE
 } from '../lib/hls-loader'
 import { isOffline } from '../lib/network'
-import { userError } from '../lib/user-error'
+import { extractCodedError, userError } from '../lib/user-error'
 
 interface PreparingVideoPageProps {
   /** Disk package for offline accounts; RAM-only for online accounts. */
@@ -130,6 +130,7 @@ export default function PreparingVideoPage({
           return
         }
 
+        console.error('[preparing-video] download failed', caught)
         const message = caught instanceof Error ? caught.message : ''
         // The main process may already be working on it from an earlier attempt.
         if (message.toLowerCase().includes('already in progress')) {
@@ -149,10 +150,11 @@ export default function PreparingVideoPage({
         }
 
         setError(
-          userError(
-            9372,
-            'We could not prepare your video. Check your internet connection and try again.'
-          )
+          extractCodedError(message) ??
+            userError(
+              9372,
+              'We could not prepare your video. Check your internet connection and try again.'
+            )
         )
       }
     })()

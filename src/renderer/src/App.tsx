@@ -55,14 +55,17 @@ export default function App() {
     try {
       const status = await window.pathnatya.getAppPermissions()
       setPermissions(status)
+      return status
     } catch (error) {
       console.error('Unable to read app permissions:', error)
       // Fail closed: keep the gate up with an empty denied checklist.
-      setPermissions({
+      const denied: AppPermissionsStatus = {
         platform: 'other',
         allRequiredGranted: false,
         permissions: []
-      })
+      }
+      setPermissions(denied)
+      return denied
     } finally {
       if (!silent) {
         setPermissionsChecking(false)
@@ -72,15 +75,31 @@ export default function App() {
 
   useEffect(() => {
     void refreshPermissions()
+  }, [refreshPermissions])
 
+  useEffect(() => {
+    const granted = Boolean(permissions?.allRequiredGranted)
     const intervalId = window.setInterval(() => {
       void refreshPermissions({ silent: true })
-    }, PERMISSIONS_POLL_MS)
+    }, granted ? PERMISSIONS_POLL_MS : 5_000)
 
     return () => {
       window.clearInterval(intervalId)
     }
-  }, [refreshPermissions])
+  }, [refreshPermissions, permissions?.allRequiredGranted])
+
+  useEffect(() => {
+    const onFocus = (): void => {
+      if (!permissions?.allRequiredGranted) {
+        void refreshPermissions({ silent: true })
+      }
+    }
+
+    window.addEventListener('focus', onFocus)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [permissions?.allRequiredGranted, refreshPermissions])
 
   useEffect(() => {
     clearAllStorage()
@@ -236,6 +255,10 @@ export default function App() {
     }
   }, [])
 
+  const handleRelaunchApp = useCallback(() => {
+    void window.pathnatya.relaunchApp()
+  }, [])
+
   if (permissionsChecking && !permissions) {
     return (
       <>
@@ -270,6 +293,7 @@ export default function App() {
           onOpenSettings={(id) => {
             void handleOpenPermissionSettings(id)
           }}
+          onRelaunch={handleRelaunchApp}
         />
         {alwaysOnTopBlocked && <AlwaysOnTopGate />}
       </>
