@@ -1,7 +1,7 @@
 {
   "name": "pathnatya",
-  "version": "4.5.4",
-  "description": "Secure Electron desktop application",
+  "version": "4.5.5",
+  "description": "Secure Electron desktop application.",
   "main": "dist/main/index.js",
   "author": "Pathnatya",
   "license": "UNLICENSED",
