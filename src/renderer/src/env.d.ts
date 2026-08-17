@@ -1,10 +1,8 @@
 import type { Account } from './api/accounts'
 
-export interface OfflineLoginResult {
-  account: Account
-  token: string
-  loginTokens: string[]
-}
+export type OfflineLoginResult =
+  | { ok: true; account: Account; token: string; loginTokens: string[] }
+  | { ok: false; reason: 'needs_internet' | 'invalid' }
 
 export interface HlsOfflineStatus {
   available: boolean
@@ -105,6 +103,7 @@ export interface PathnatyaAPI {
   cancelHlsDownload: () => Promise<void>
   clearHlsOfflineVideo: () => Promise<void>
   clearHlsMemoryVideo: () => Promise<void>
+  wipeDownloadedVideo: () => Promise<void>
   onHlsDownloadProgress: (callback: (progress: HlsOfflineStatus) => void) => () => void
   saveOfflineSession: (payload: {
     phoneNumber: string
@@ -114,7 +113,9 @@ export interface PathnatyaAPI {
     password: string
   }) => Promise<void>
   hasOfflineSession: (phoneNumber: string) => Promise<boolean>
-  tryOfflineLogin: (phoneNumber: string, password: string) => Promise<OfflineLoginResult | null>
+  tryOfflineLogin: (phoneNumber: string, password: string) => Promise<OfflineLoginResult>
+  isOfflineCheckInRequired: () => Promise<boolean>
+  renewOfflineCheckIn: () => Promise<boolean>
   clearOfflineSession: () => Promise<void>
   onSessionInterrupted: (callback: () => void) => () => void
   onResetToLogin: (callback: () => void) => () => void
@@ -132,7 +133,6 @@ export interface PathnatyaAPI {
     callback: (payload: {
       event: string
       tampered: boolean
-      threat?: boolean
       path?: string
       paths?: string[]
     }) => void

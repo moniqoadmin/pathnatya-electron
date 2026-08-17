@@ -28,6 +28,8 @@ export interface Account {
   chokidar?: boolean
   /** When true, watch the video player DOM for unexpected mutations. */
   dom_security?: boolean
+  /** Max offline OS reboots before an online check-in is required. */
+  numberOfReboot?: number
 }
 
 export interface LoginResponse {
@@ -39,6 +41,8 @@ export interface LoginResponse {
   chokidar?: boolean
   /** Prefer account.dom_security; kept for APIs that return it at the root. */
   dom_security?: boolean
+  /** Prefer account.numberOfReboot; kept for APIs that return it at the root. */
+  numberOfReboot?: number
 }
 
 export interface LoginTokenResponse {

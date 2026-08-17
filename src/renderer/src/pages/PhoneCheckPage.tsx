@@ -10,6 +10,8 @@ interface PhoneCheckPageProps {
   onNeedsPassword: (phoneNumber: string) => void
 }
 
+const CONNECT_TO_INTERNET_TO_LOGIN = userError(2714, 'Connect to internet to login')
+
 export default function PhoneCheckPage({
   onBack,
   onExistingAccount,
@@ -37,6 +39,8 @@ export default function PhoneCheckPage({
         return
       }
 
+      await window.pathnatya.renewOfflineCheckIn()
+
       const result = await checkPhone(trimmed)
 
       if (!result.exists) {
@@ -62,6 +66,11 @@ export default function PhoneCheckPage({
   }
 
   async function continueOffline(trimmed: string): Promise<void> {
+    if (await window.pathnatya.isOfflineCheckInRequired()) {
+      setError(CONNECT_TO_INTERNET_TO_LOGIN)
+      return
+    }
+
     // Only offline-capable accounts get a local session; online-only must be online.
     if (await window.pathnatya.hasOfflineSession(trimmed)) {
       onExistingAccount(trimmed)

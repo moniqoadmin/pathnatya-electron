@@ -379,6 +379,15 @@ export async function getValidOfflineManifest(): Promise<OfflineVideoManifest | 
   return manifest
 }
 
+/**
+ * True when a downloaded offline package is on disk. Does not decrypt, expire,
+ * or delete anything — used only to decide whether the 2-day online check-in
+ * applies.
+ */
+export async function hasOfflineVideoPackage(): Promise<boolean> {
+  return pathExists(manifestPath())
+}
+
 export async function getOfflineVideoStatus(): Promise<OfflineVideoStatus> {
   const manifest = await getValidOfflineManifest()
 

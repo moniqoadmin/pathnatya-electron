@@ -2,10 +2,12 @@ import { promises as fs } from 'fs'
 import { join } from 'path'
 import { app, safeStorage } from 'electron'
 import { pbkdf2Sync, randomBytes, timingSafeEqual } from 'crypto'
+import { isOfflineCheckInRequired } from './offline-checkin'
 import {
   getTrustedNowDate,
   isTrustedTtlExpired,
-  loadTrustedTime
+  loadTrustedTime,
+  setNumberOfRebootFromAccount
 } from './trusted-time'
 
 const OFFLINE_SESSION_FILE = 'offline-session.dat'
@@ -35,6 +37,7 @@ export interface OfflineAccount {
   isOffline?: boolean
   chokidar?: boolean
   dom_security?: boolean
+  numberOfReboot?: number
 }
 
 export interface OfflineSessionPayload {
@@ -45,11 +48,9 @@ export interface OfflineSessionPayload {
   password: string
 }
 
-export interface OfflineLoginResult {
-  account: OfflineAccount
-  token: string
-  loginTokens: string[]
-}
+export type OfflineLoginResult =
+  | { ok: true; account: OfflineAccount; token: string; loginTokens: string[] }
+  | { ok: false; reason: 'needs_internet' | 'invalid' }
 
 interface StoredOfflineSession {
   phoneNumber: string
@@ -152,6 +153,7 @@ export async function saveOfflineSession(payload: OfflineSessionPayload): Promis
 
   const sealed = seal(JSON.stringify(stored))
   await fs.writeFile(getSessionPath(), sealed)
+  await setNumberOfRebootFromAccount(payload.account)
 }
 
 export async function hasOfflineSession(phoneNumber: string): Promise<boolean> {
@@ -164,10 +166,10 @@ export async function hasOfflineSession(phoneNumber: string): Promise<boolean> {
 export async function tryOfflineLogin(
   phoneNumber: string,
   password: string
-): Promise<OfflineLoginResult | null> {
+): Promise<OfflineLoginResult> {
   const stored = await readStoredSession()
   if (!stored || stored.phoneNumber !== phoneNumber.trim() || !password) {
-    return null
+    return { ok: false, reason: 'invalid' }
   }
 
   const salt = Buffer.from(stored.passwordSalt, 'base64')
@@ -175,15 +177,22 @@ export async function tryOfflineLogin(
   const actual = hashPassword(password, salt)
 
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
-    return null
+    return { ok: false, reason: 'invalid' }
   }
 
   // Online-only accounts must authenticate against the server.
   if (!stored.account.isOffline) {
-    return null
+    return { ok: false, reason: 'invalid' }
+  }
+
+  // Downloaded offline video must re-verify server time every 2 days. Keep the
+  // package; only refuse local login until the next successful sync.
+  if (await isOfflineCheckInRequired()) {
+    return { ok: false, reason: 'needs_internet' }
   }
 
   return {
+    ok: true,
     account: stored.account,
     token: stored.token,
     loginTokens: [...stored.loginTokens]

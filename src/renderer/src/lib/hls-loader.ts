@@ -71,6 +71,11 @@ export function clearHlsMemoryVideo(): void {
   void window.pathnatya.clearHlsMemoryVideo()
 }
 
+/** Tamper / duplicate-copy logout: erase RAM and on-disk video even while offline. */
+export function wipeDownloadedVideo(): void {
+  void window.pathnatya.wipeDownloadedVideo()
+}
+
 export function onHlsDownloadProgress(
   callback: (progress: Awaited<ReturnType<typeof getHlsOfflineStatus>>) => void
 ) {

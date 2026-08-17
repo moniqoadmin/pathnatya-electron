@@ -105,6 +105,7 @@ const API = {
   cancelHlsDownload: () => ipcRenderer.invoke('cancel-hls-download') as Promise<void>,
   clearHlsOfflineVideo: () => ipcRenderer.invoke('clear-hls-offline-video') as Promise<void>,
   clearHlsMemoryVideo: () => ipcRenderer.invoke('clear-hls-memory-video') as Promise<void>,
+  wipeDownloadedVideo: () => ipcRenderer.invoke('wipe-downloaded-video') as Promise<void>,
   onHlsDownloadProgress: (callback: (progress: HlsOfflineStatus) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, progress: HlsOfflineStatus): void => {
       callback(progress)
@@ -126,10 +127,14 @@ const API = {
     ipcRenderer.invoke('has-offline-session', phoneNumber) as Promise<boolean>,
   tryOfflineLogin: (phoneNumber: string, password: string) =>
     ipcRenderer.invoke('try-offline-login', phoneNumber, password) as Promise<{
+      ok: true
       account: unknown
       token: string
       loginTokens: string[]
-    } | null>,
+    } | { ok: false; reason: 'needs_internet' | 'invalid' }>,
+  isOfflineCheckInRequired: () =>
+    ipcRenderer.invoke('is-offline-checkin-required') as Promise<boolean>,
+  renewOfflineCheckIn: () => ipcRenderer.invoke('renew-offline-checkin') as Promise<boolean>,
   clearOfflineSession: () => ipcRenderer.invoke('clear-offline-session') as Promise<void>,
   onSessionInterrupted: (callback: () => void) => {
     const handler = (): void => {
@@ -190,7 +195,6 @@ const API = {
     callback: (payload: {
       event: string
       tampered: boolean
-      threat?: boolean
       path?: string
       paths?: string[]
     }) => void
@@ -200,7 +204,6 @@ const API = {
       payload: {
         event: string
         tampered: boolean
-        threat?: boolean
         path?: string
         paths?: string[]
       }

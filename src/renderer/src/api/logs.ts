@@ -34,7 +34,7 @@ export async function postAppLog(event: AppLogEvent, tampered: boolean): Promise
   await apiFetch<void>('/logs', {
     method: 'POST',
     authToken: session.token,
-    json: event === 'FILES_TAMPERED' ? { event, threat: true } : { event, tampered }
+    json: { event, tampered }
   })
   return true
 }

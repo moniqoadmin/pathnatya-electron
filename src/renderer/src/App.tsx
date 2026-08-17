@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Account } from './api/accounts'
 import { postAppLog, reportAppLog, type AppLogEvent } from './api/logs'
-import { startConnectivityWatch } from './lib/connectivity'
-import { clearHlsMemoryVideo, clearHlsPlayback } from './lib/hls-loader'
+import { startConnectivityWatch, subscribeConnectivity } from './lib/connectivity'
+import { clearHlsMemoryVideo, clearHlsPlayback, wipeDownloadedVideo } from './lib/hls-loader'
 import { clearAllStorage } from './lib/storage'
 import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
@@ -88,7 +88,20 @@ export default function App() {
   }, [])
 
   // Runs for the life of the app so login already knows whether the server is reachable.
-  useEffect(() => startConnectivityWatch(), [])
+  // Coming back online resyncs trusted time, drops reboot penalties, and keeps a
+  // still-valid 2-day check-in expiry (a lapsed window is restamped from server GMT).
+  useEffect(() => {
+    const unsubscribe = subscribeConnectivity((next) => {
+      if (next === 'online') {
+        void window.pathnatya.renewOfflineCheckIn()
+      }
+    })
+    const stopWatch = startConnectivityWatch()
+    return () => {
+      unsubscribe()
+      stopWatch()
+    }
+  }, [])
 
   // Block the whole app (login included) when another window is pinned always-on-top.
   useEffect(() => {
@@ -143,7 +156,7 @@ export default function App() {
 
   const forceLogout = useCallback(() => {
     clearHlsPlayback()
-    clearHlsMemoryVideo()
+    wipeDownloadedVideo()
     clearAllStorage()
     setAccount(null)
     setPhoneNumber('')

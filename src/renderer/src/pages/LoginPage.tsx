@@ -21,6 +21,8 @@ const INTERNET_REQUIRED_MESSAGE = userError(
   'Internet connection is required to log in. Please connect and try again.'
 )
 
+const CONNECT_TO_INTERNET_TO_LOGIN = userError(2714, 'Connect to internet to login')
+
 export default function LoginPage({
   phoneNumber: initialPhone,
   onBack,
@@ -32,10 +34,17 @@ export default function LoginPage({
   const [loading, setLoading] = useState(false)
 
   /** Offline login is only for accounts with offline mode enabled. */
-  async function completeOfflineLogin(trimmed: string, passwordValue: string): Promise<boolean> {
+  async function completeOfflineLogin(
+    trimmed: string,
+    passwordValue: string
+  ): Promise<'ok' | 'needs_internet' | 'invalid'> {
     const offline = await window.pathnatya.tryOfflineLogin(trimmed, passwordValue)
-    if (!offline || !offline.account.isOffline) {
-      return false
+    if (!offline.ok) {
+      return offline.reason
+    }
+
+    if (!offline.account.isOffline) {
+      return 'invalid'
     }
 
     saveSession(offline.token, offline.account)
@@ -43,7 +52,11 @@ export default function LoginPage({
     await applyVideoKey(offline.loginTokens)
 
     onSuccess(offline.account)
-    return true
+    return 'ok'
+  }
+
+  function setOfflineLoginError(result: 'needs_internet' | 'invalid'): void {
+    setError(result === 'needs_internet' ? CONNECT_TO_INTERNET_TO_LOGIN : INTERNET_REQUIRED_MESSAGE)
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -65,13 +78,16 @@ export default function LoginPage({
     try {
       // No network: only offline-capable accounts may continue via the local session.
       if (!(await ensureOnline())) {
-        if (await completeOfflineLogin(trimmed, password)) {
+        const offlineResult = await completeOfflineLogin(trimmed, password)
+        if (offlineResult === 'ok') {
           return
         }
 
-        setError(INTERNET_REQUIRED_MESSAGE)
+        setOfflineLoginError(offlineResult)
         return
       }
+
+      await window.pathnatya.renewOfflineCheckIn()
 
       const deviceId = await getDeviceId()
       const result = await login(trimmed, password, deviceId)
@@ -79,7 +95,8 @@ export default function LoginPage({
         ...result.account,
         isOffline: result.isOffline ?? result.account.isOffline,
         chokidar: result.chokidar ?? result.account.chokidar,
-        dom_security: result.dom_security ?? result.account.dom_security
+        dom_security: result.dom_security ?? result.account.dom_security,
+        numberOfReboot: result.numberOfReboot ?? result.account.numberOfReboot
       }
       saveSession(result.token, account)
 
@@ -89,10 +106,11 @@ export default function LoginPage({
       } catch (tokenError) {
         // Tokens require the server; online-only accounts cannot fall back offline.
         if (isNetworkError(tokenError)) {
-          if (account.isOffline && (await completeOfflineLogin(trimmed, password))) {
+          const offlineResult = await completeOfflineLogin(trimmed, password)
+          if (offlineResult === 'ok') {
             return
           }
-          setError(INTERNET_REQUIRED_MESSAGE)
+          setOfflineLoginError(offlineResult)
           return
         }
         throw tokenError
@@ -120,11 +138,12 @@ export default function LoginPage({
       onSuccess(account)
     } catch (error) {
       if (isNetworkError(error)) {
-        if (await completeOfflineLogin(trimmed, password)) {
+        const offlineResult = await completeOfflineLogin(trimmed, password)
+        if (offlineResult === 'ok') {
           return
         }
 
-        setError(INTERNET_REQUIRED_MESSAGE)
+        setOfflineLoginError(offlineResult)
         return
       }
 

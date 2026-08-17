@@ -710,4 +710,16 @@ export function clearMemoryHls(): void {
   clearMemoryVideo()
 }
 
+/**
+ * Duplicate-copy / asar tamper: drop playback, the RAM package, and the on-disk
+ * folder. Always erases the folder — unlike logout, this must not wait for online.
+ */
+export async function wipeDownloadedVideo(): Promise<void> {
+  cancelHlsOfflineDownload()
+  cancelHlsMemoryDownload()
+  clearPreparedHls()
+  clearMemoryHls()
+  await deleteOfflineVideo()
+}
+
 export { getOfflineVideoStatus, deleteOfflineVideo, currentDownloadProgress, getMemoryVideoStatus }

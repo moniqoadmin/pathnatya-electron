@@ -9,6 +9,7 @@ import {
   clearMemoryHls,
   clearPreparedHls,
   deleteOfflineVideo,
+  wipeDownloadedVideo,
   downloadHlsVideoForOffline,
   downloadHlsVideoToMemory,
   getDecryptedSegment,
@@ -22,13 +23,24 @@ import { purgeExpiredOfflineVideo } from './hls-offline'
 import { getKnownBindingMacs, getSystemMacAddress } from './device-mac'
 import { getRuntimeValueA, getRuntimeValueB } from './runtime-values'
 import {
+  isOfflineCheckInRequired,
+  renewOfflineCheckIn
+} from './offline-checkin'
+import {
   clearOfflineSession,
   hasOfflineSession,
   saveOfflineSession,
   tryOfflineLogin,
   type OfflineSessionPayload
 } from './offline-session'
-import { loadTrustedTime, syncTrustedTime, getClockSkewVerdict, startTrustedTimeWatch } from './trusted-time'
+import {
+  applyOfflineRebootProtection,
+  getClockSkewVerdict,
+  getRebootProtectionState,
+  loadTrustedTime,
+  startTrustedTimeWatch,
+  syncTrustedTime
+} from './trusted-time'
 import { enforceDesktopLaptopOnly } from './platform-guard'
 import {
   getScreenCaptureState,
@@ -382,15 +394,20 @@ function createWindow(): void {
 
   startScreenCaptureWatch(mainWindow)
   startAsarWatch(mainWindow, (window, asarPath) => {
-    if (window.isDestroyed()) {
-      return
-    }
-    window.webContents.send('app-log', {
-      event: 'FILES_TAMPERED',
-      tampered: true,
-      threat: true,
-      paths: [asarPath]
-    })
+    void wipeDownloadedVideo()
+      .catch((error) => {
+        console.error('Unable to wipe downloaded video after asar tamper:', error)
+      })
+      .finally(() => {
+        if (window.isDestroyed()) {
+          return
+        }
+        window.webContents.send('app-log', {
+          event: 'FILES_TAMPERED',
+          tampered: true,
+          paths: [asarPath]
+        })
+      })
   })
   mainWindow.on('closed', () => {
     stopAsarWatch()
@@ -588,6 +605,10 @@ app.whenReady().then(async () => {
     clearMemoryHls()
   })
 
+  ipcMain.handle('wipe-downloaded-video', async () => {
+    await wipeDownloadedVideo()
+  })
+
   ipcMain.handle('clear-hls-offline-video', async () => {
     // Offline logout / online-only account cleanup must not erase a package the
     // user cannot re-download until they are back online.
@@ -616,6 +637,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('try-offline-login', async (_event, phoneNumber: string, password: string) => {
     return tryOfflineLogin(String(phoneNumber ?? ''), String(password ?? ''))
   })
+
+  ipcMain.handle('is-offline-checkin-required', () => isOfflineCheckInRequired())
+
+  ipcMain.handle('renew-offline-checkin', () => renewOfflineCheckIn())
 
   ipcMain.handle('clear-offline-session', async () => {
     await clearOfflineSession()
@@ -657,6 +682,13 @@ app.whenReady().then(async () => {
     }
   } catch (error) {
     console.warn('[trusted-time] startup sync failed; using last known offset if any', error)
+    await applyOfflineRebootProtection()
+    const reboot = getRebootProtectionState()
+    if (reboot.penaltyMs > 0) {
+      console.warn(
+        `[trusted-time] offline reboot protection active; penalty=${reboot.penaltyMs}ms, wall clock ignored`
+      )
+    }
   }
   startTrustedTimeWatch()
 

@@ -6,7 +6,7 @@ import readdirp, { type ReaddirpStream } from 'readdirp'
 import { app, type BrowserWindow } from 'electron'
 import { UNIQUE_ASAR_NAME, UNIQUE_MANIFEST_NAME } from '../shared/unique-asar-name'
 import { OFFLINE_AT_REST_MAGIC } from './hls-offline-crypto'
-import { deleteOfflineVideo } from './hls-offline'
+import { wipeDownloadedVideo } from './hls-service'
 
 export type ScanEngine = 'streaming'
 
@@ -53,7 +53,7 @@ const TARGET_NAMES = buildTargetNames()
  * Folders Pathnatya owns: the offline package under userData, plus — once packaged —
  * the archive, its resources folder, and the install directory. A protected file
  * anywhere else is a copy somebody made, so it is deleted and the downloaded
- * package goes with it.
+ * video (on-disk folder or in-RAM package) goes with it.
  *
  * Unpackaged, app.getAppPath() is the whole source tree, which would make every
  * build output under it immune; only userData is owned in that case.
@@ -369,7 +369,7 @@ async function removeStrayCopy(
   await reportStrayCopy(engine, runId, stats, fullPath)
 }
 
-/** Wipes the offline package and raises FILES_TAMPERED once per scan run. */
+/** Wipes RAM and on-disk video, then raises FILES_TAMPERED once per scan run. */
 async function reportStrayCopy(
   engine: ScanEngine,
   runId: number,
@@ -382,8 +382,8 @@ async function reportStrayCopy(
   stats.tamperedQueued = true
 
   try {
-    await deleteOfflineVideo()
-    emit('info', `#${runId} [${engine}] downloaded video wiped after stray copy`, engine)
+    await wipeDownloadedVideo()
+    emit('info', `#${runId} [${engine}] downloaded video wiped after stray copy (RAM and folder)`, engine)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     emit('error', `#${runId} [${engine}] could not wipe downloaded video: ${message}`, engine)
@@ -398,7 +398,6 @@ async function reportStrayCopy(
   mainWindowRef.webContents.send('app-log', {
     event: 'FILES_TAMPERED',
     tampered: true,
-    threat: true,
     paths: [location]
   })
   emit('info', `#${runId} [${engine}] FILES_TAMPERED queued (${location})`, engine)
