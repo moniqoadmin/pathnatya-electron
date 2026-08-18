@@ -41,7 +41,8 @@ export default function PhoneCheckPage({
 
       await window.pathnatya.renewOfflineCheckIn()
 
-      const result = await checkPhone(trimmed)
+      const ipAddress = await window.pathnatya.getSystemIpAddress()
+      const result = await checkPhone(trimmed, ipAddress)
 
       if (!result.exists) {
         setError(userError(742, 'Wrong phone number. Please check and try again.'))

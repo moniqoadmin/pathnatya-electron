@@ -49,10 +49,10 @@ export interface LoginTokenResponse {
   keys: string[]
 }
 
-export function checkPhone(phoneNumber: string): Promise<CheckPhoneResponse> {
+export function checkPhone(phoneNumber: string, ipAddress: string): Promise<CheckPhoneResponse> {
   return apiFetch<CheckPhoneResponse>('/accounts/check-phone', {
     method: 'POST',
-    json: { phoneNumber }
+    json: { phoneNumber, ipAddress }
   })
 }
 
