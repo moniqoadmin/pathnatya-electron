@@ -15,6 +15,7 @@ export default function SetPasswordPage({ phoneNumber, onBack, onSuccess }: SetP
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [teamNumber, setTeamNumber] = useState<number | null>(null)
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -40,8 +41,8 @@ export default function SetPasswordPage({ phoneNumber, onBack, onSuccess }: SetP
         return
       }
 
-      await setPassword(phoneNumber, password, deviceId)
-      onSuccess()
+      const result = await setPassword(phoneNumber, password, deviceId)
+      setTeamNumber(result.teamNumber)
     } catch (error) {
       const message = error instanceof Error ? error.message : ''
       setError(
@@ -52,6 +53,26 @@ export default function SetPasswordPage({ phoneNumber, onBack, onSuccess }: SetP
     } finally {
       setLoading(false)
     }
+  }
+
+  if (teamNumber !== null) {
+    return (
+      <div className="page auth-page">
+        <header className="page-header">
+          <p className="sanskrit-header">Jay Yogeshwar</p>
+          <h1 className="team-number-heading">
+            Hello, your team number is
+            <span className="team-number-value">{teamNumber}</span>
+          </h1>
+        </header>
+
+        <div className="card team-number-card">
+          <button type="button" className="btn btn-primary" onClick={onSuccess}>
+            Continue
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (

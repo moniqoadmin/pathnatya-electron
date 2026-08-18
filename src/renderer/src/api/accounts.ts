@@ -57,12 +57,19 @@ export function checkPhone(phoneNumber: string, ipAddress: string): Promise<Chec
   })
 }
 
+export interface SetPasswordResponse {
+  id: string
+  phoneNumber: string
+  teams: unknown[]
+  teamNumber: number
+}
+
 export function setPassword(
   phoneNumber: string,
   password: string,
   ipAddress: string
-): Promise<void> {
-  return apiFetch<void>('/accounts/set-password', {
+): Promise<SetPasswordResponse> {
+  return apiFetch<SetPasswordResponse>('/accounts/set-password', {
     method: 'POST',
     json: { phoneNumber, password, ipAddress }
   })
