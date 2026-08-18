@@ -319,10 +319,6 @@ export default function VideoLoaderPage({
 
   // Report unexpected edits inside the video-player subtree (injections / media removal).
   useEffect(() => {
-    if (!account.dom_security) {
-      return
-    }
-
     const root = videoPlayerRef.current
     if (!root) {
       return
@@ -334,7 +330,7 @@ export default function VideoLoaderPage({
         reportAppLog('DOM_CHANGED', true)
       }
     })
-  }, [account.dom_security])
+  }, [])
 
   // Resolve the playlist in main, then hand the decrypted stream to hls.js.
   useEffect(() => {

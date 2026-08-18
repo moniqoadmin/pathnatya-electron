@@ -551,7 +551,7 @@ app.whenReady().then(async () => {
     relaunchApp()
   })
 
-  // Drive streaming scan — started only when login returns chokidar: true.
+  // Drive streaming scan — started after login (renderer always enables it).
   ipcMain.handle('set-drive-scan-enabled', (event, enabled: boolean) => {
     if (!enabled) {
       stopDriveScanLoop()

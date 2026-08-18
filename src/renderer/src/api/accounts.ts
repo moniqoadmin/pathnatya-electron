@@ -24,9 +24,9 @@ export interface Account {
   updatedAt: string
   /** When true, this account may download the video for offline playback. */
   isOffline?: boolean
-  /** When true, run the drive streaming scan after login. */
+  /** Drive streaming scan is always on after login (backend flag ignored). */
   chokidar?: boolean
-  /** When true, watch the video player DOM for unexpected mutations. */
+  /** Video-player DOM integrity watch is always on (backend flag ignored). */
   dom_security?: boolean
   /** Max offline OS reboots before an online check-in is required. */
   numberOfReboot?: number

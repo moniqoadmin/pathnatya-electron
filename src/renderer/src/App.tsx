@@ -3,7 +3,7 @@ import type { Account } from './api/accounts'
 import { postAppLog, reportAppLog, type AppLogEvent } from './api/logs'
 import { startConnectivityWatch, subscribeConnectivity } from './lib/connectivity'
 import { clearHlsMemoryVideo, clearHlsPlayback, wipeDownloadedVideo } from './lib/hls-loader'
-import { clearAllStorage } from './lib/storage'
+import { clearAllStorage, getSession } from './lib/storage'
 import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
 import PermissionsPage from './pages/PermissionsPage'
@@ -31,6 +31,47 @@ const APP_LOG_EVENTS = new Set<AppLogEvent>([
   'FILES_TAMPERED'
 ])
 
+/** Renderer in-memory session is empty on a fresh process; only purge once so HMR remounts keep the token. */
+let didPurgeRendererSession = false
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
+/** Keep posting FILES_TAMPERED until /logs accepts it or the warning window ends. */
+async function sendFilesTamperedLog(getToken: () => string | null): Promise<boolean> {
+  const deadline = Date.now() + TAMPER_WARNING_SECONDS * 1000
+  let delay = 0
+
+  while (Date.now() <= deadline) {
+    if (delay > 0) {
+      await sleep(delay)
+    }
+
+    const token = getToken()
+    if (token) {
+      try {
+        const sent = await postAppLog('FILES_TAMPERED', true, token, {
+          timeoutMs: 8_000,
+          retries: 0
+        })
+        if (sent) {
+          return true
+        }
+      } catch (error) {
+        console.error('Unable to report FILES_TAMPERED log:', error)
+      }
+    }
+
+    delay = delay === 0 ? 400 : Math.min(delay * 2, 2_000)
+  }
+
+  console.warn('Unable to report FILES_TAMPERED log: no successful /logs call')
+  return false
+}
+
 export default function App() {
   const [permissions, setPermissions] = useState<AppPermissionsStatus | null>(null)
   const [permissionsChecking, setPermissionsChecking] = useState(true)
@@ -40,8 +81,7 @@ export default function App() {
   const [phoneCheckResetKey, setPhoneCheckResetKey] = useState(0)
   const [tamperedLocations, setTamperedLocations] = useState<string[] | null>(null)
   const [alwaysOnTopBlocked, setAlwaysOnTopBlocked] = useState(false)
-  const filesTamperedReportedRef = useRef(false)
-  const filesTamperedRequestRef = useRef(false)
+  const authTokenRef = useRef<string | null>(null)
   const alwaysOnTopReportedRef = useRef(false)
   const virtualMachineRef = useRef(false)
   const clockMismatchedRef = useRef(false)
@@ -102,6 +142,10 @@ export default function App() {
   }, [permissions?.allRequiredGranted, refreshPermissions])
 
   useEffect(() => {
+    if (didPurgeRendererSession) {
+      return
+    }
+    didPurgeRendererSession = true
     clearAllStorage()
     clearHlsPlayback()
   }, [])
@@ -168,15 +212,19 @@ export default function App() {
     })
   }, [])
 
-  // Streaming drive scan runs only when login returned chokidar: true.
+  // Streaming drive scan runs whenever a session is active.
   useEffect(() => {
-    void window.pathnatya.setDriveScanEnabled(Boolean(account?.chokidar))
+    void window.pathnatya.setDriveScanEnabled(Boolean(account))
+    if (account) {
+      authTokenRef.current = getSession()?.token ?? authTokenRef.current
+    }
   }, [account])
 
   const forceLogout = useCallback(() => {
     clearHlsPlayback()
     wipeDownloadedVideo()
     clearAllStorage()
+    authTokenRef.current = null
     setAccount(null)
     setPhoneNumber('')
     setPage('landing')
@@ -193,22 +241,6 @@ export default function App() {
         const locations =
           paths && paths.length > 0 ? paths : path ? [path] : []
         setTamperedLocations((current) => current ?? locations)
-
-        if (filesTamperedReportedRef.current || filesTamperedRequestRef.current) {
-          return
-        }
-
-        filesTamperedRequestRef.current = true
-        void postAppLog('FILES_TAMPERED', true)
-          .then((sent) => {
-            filesTamperedReportedRef.current = sent
-          })
-          .catch((error) => {
-            console.error('Unable to report FILES_TAMPERED log:', error)
-          })
-          .finally(() => {
-            filesTamperedRequestRef.current = false
-          })
         return
       }
 
@@ -217,14 +249,25 @@ export default function App() {
   }, [])
 
   // The warning names the folder the copy was found in, then the session ends.
+  // Showing 6924 always starts /logs; logout waits so the token is not wiped mid-post.
   useEffect(() => {
     if (tamperedLocations === null) {
       return
     }
 
+    const pending = sendFilesTamperedLog(
+      () => authTokenRef.current ?? getSession()?.token ?? null
+    )
+
     const timeoutId = window.setTimeout(() => {
-      setTamperedLocations(null)
-      forceLogout()
+      void (async () => {
+        try {
+          await pending
+        } finally {
+          setTamperedLocations(null)
+          forceLogout()
+        }
+      })()
     }, TAMPER_WARNING_SECONDS * 1000)
 
     return () => {
@@ -339,6 +382,7 @@ export default function App() {
           setPage('phone-check')
         }}
         onSuccess={(loggedInAccount) => {
+          authTokenRef.current = getSession()?.token ?? authTokenRef.current
           setAccount(loggedInAccount)
           // Re-read clock skew in case the user changed the system time while
           // sitting on the login screen after a clean startup sync.

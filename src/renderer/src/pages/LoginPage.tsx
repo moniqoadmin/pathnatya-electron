@@ -95,8 +95,8 @@ export default function LoginPage({
       const account: Account = {
         ...result.account,
         isOffline: result.isOffline ?? result.account.isOffline,
-        chokidar: result.chokidar ?? result.account.chokidar,
-        dom_security: result.dom_security ?? result.account.dom_security,
+        chokidar: true,
+        dom_security: true,
         numberOfReboot: result.numberOfReboot ?? result.account.numberOfReboot
       }
       saveSession(result.token, account)

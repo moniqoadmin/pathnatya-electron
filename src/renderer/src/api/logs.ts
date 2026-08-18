@@ -25,16 +25,23 @@ function logKey(event: AppLogEvent, tampered: boolean): string {
   return `${event}:${tampered ? '1' : '0'}`
 }
 
-export async function postAppLog(event: AppLogEvent, tampered: boolean): Promise<boolean> {
-  const session = getSession()
-  if (!session?.token) {
+export async function postAppLog(
+  event: AppLogEvent,
+  tampered: boolean,
+  authToken?: string,
+  fetchOptions?: { timeoutMs?: number; retries?: number }
+): Promise<boolean> {
+  const token = authToken ?? getSession()?.token
+  if (!token) {
     return false
   }
 
   await apiFetch<void>('/logs', {
     method: 'POST',
-    authToken: session.token,
-    json: { event, tampered }
+    authToken: token,
+    json: { event, tampered },
+    timeoutMs: fetchOptions?.timeoutMs,
+    retries: fetchOptions?.retries
   })
   return true
 }
