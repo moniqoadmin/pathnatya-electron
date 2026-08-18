@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react'
 import { checkPhone } from '../api/accounts'
 import { ensureOnline } from '../lib/connectivity'
+import { getDeviceId } from '../lib/device-id'
 import { isNetworkError } from '../lib/network'
 import { userError } from '../lib/user-error'
 
@@ -41,8 +42,15 @@ export default function PhoneCheckPage({
 
       await window.pathnatya.renewOfflineCheckIn()
 
-      const macAddress = await window.pathnatya.getSystemMacAddress()
-      const result = await checkPhone(trimmed, macAddress || 'macAddress')
+      const deviceId = await getDeviceId()
+      if (!deviceId) {
+        setError(
+          userError(5291, 'Unable to read this device identifier. Check your network connection.')
+        )
+        return
+      }
+
+      const result = await checkPhone(trimmed, deviceId)
 
       if (!result.exists) {
         setError(userError(742, 'Wrong phone number. Please check and try again.'))
@@ -60,7 +68,12 @@ export default function PhoneCheckPage({
         return
       }
 
-      setError(userError(965, 'Unable to verify phone number. Please try again.'))
+      const message = error instanceof Error ? error.message : ''
+      setError(
+        message.includes('Device identifier')
+          ? userError(783, message)
+          : userError(965, 'Unable to verify phone number. Please try again.')
+      )
     } finally {
       setLoading(false)
     }

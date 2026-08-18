@@ -50,6 +50,7 @@ export interface LoginTokenResponse {
 }
 
 export function checkPhone(phoneNumber: string, ipAddress: string): Promise<CheckPhoneResponse> {
+  console.log('check-phone ipAddress:', ipAddress)
   return apiFetch<CheckPhoneResponse>('/accounts/check-phone', {
     method: 'POST',
     json: { phoneNumber, ipAddress }
