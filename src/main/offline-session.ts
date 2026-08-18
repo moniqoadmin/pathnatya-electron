@@ -2,6 +2,7 @@ import { promises as fs } from 'fs'
 import { join } from 'path'
 import { app, safeStorage } from 'electron'
 import { pbkdf2Sync, randomBytes, timingSafeEqual } from 'crypto'
+import { loadHlsAppConfiguration } from './hls-config'
 import { isOfflineCheckInRequired } from './offline-checkin'
 import {
   getTrustedNowDate,
@@ -190,6 +191,8 @@ export async function tryOfflineLogin(
   if (await isOfflineCheckInRequired()) {
     return { ok: false, reason: 'needs_internet' }
   }
+
+  await loadHlsAppConfiguration()
 
   return {
     ok: true,

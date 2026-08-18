@@ -88,6 +88,12 @@ export interface PathnatyaAPI {
   getSystemIpAddress: () => Promise<string>
   setVideoKey: (token: string) => Promise<void>
   clearVideoKey: () => Promise<void>
+  setAppConfiguration: (config: {
+    hlsSource: string
+    allowedHosts: string[]
+    videoFiles: string[]
+  }) => Promise<void>
+  clearAppConfiguration: () => Promise<void>
   prepareHlsVideo: (sourceUrl?: string) => Promise<{
     playlistUrl: string
     totalDurationSeconds: number

@@ -42,13 +42,8 @@ import {
   type OfflineVideoManifest,
   type OfflineVideoStatus
 } from './hls-offline'
+import { getRequiredHlsSource, isAllowedHlsHost, loadHlsAppConfiguration } from './hls-config'
 import { syncTrustedTime } from './trusted-time'
-
-export const DEFAULT_HLS_SOURCE =
-  'https://pathnatya-video-cdn.b-cdn.net/video-001/playlist.m3u8'
-
-/** Only these hosts may be fetched, so the renderer cannot drive arbitrary requests. */
-const ALLOWED_HOSTS = new Set(['pathnatya-video-cdn.b-cdn.net'])
 
 export const HLS_PLAYLIST_URL = 'pathnatya://hls/playlist.m3u8'
 const SEGMENT_URL_PREFIX = 'pathnatya://hls/segment/'
@@ -93,7 +88,7 @@ function assertAllowedUrl(rawUrl: string): URL {
     throw new Error('647 : Video source URL is invalid.')
   }
 
-  if (url.protocol !== 'https:' || !ALLOWED_HOSTS.has(url.hostname)) {
+  if (url.protocol !== 'https:' || !isAllowedHlsHost(url.hostname)) {
     throw new Error(`3928 : Video source host "${url.hostname}" is not allowed.`)
   }
 
@@ -333,6 +328,7 @@ async function resolveRemotePlaylist(sourceUrl: string): Promise<{
   segments: HlsSegment[]
   rewritten: string
 }> {
+  await loadHlsAppConfiguration()
   const source = assertAllowedUrl(sourceUrl)
 
   let playlistUrl = source.toString()
@@ -405,7 +401,17 @@ async function verifyOfflinePackageOrDiscard(manifest: OfflineVideoManifest): Pr
   }
 }
 
-export async function prepareHlsVideo(sourceUrl = DEFAULT_HLS_SOURCE): Promise<PreparedHls> {
+async function resolveHlsSourceUrl(sourceUrl?: string): Promise<string> {
+  await loadHlsAppConfiguration()
+  const trimmed = sourceUrl?.trim()
+  if (trimmed) {
+    return trimmed
+  }
+
+  return getRequiredHlsSource()
+}
+
+export async function prepareHlsVideo(sourceUrl?: string): Promise<PreparedHls> {
   // Clears playback buffers only — the RAM package survives logout / re-prepare.
   clearPreparedHls()
 
@@ -448,7 +454,7 @@ export async function prepareHlsVideo(sourceUrl = DEFAULT_HLS_SOURCE): Promise<P
   console.log('[hls-offline] no offline or memory package — loading online source')
 
   try {
-    const remote = await resolveRemotePlaylist(sourceUrl)
+    const remote = await resolveRemotePlaylist(await resolveHlsSourceUrl(sourceUrl))
     return applyResolvedPlaylist(
       { segments: remote.segments, rewritten: remote.rewritten },
       { fromOffline: false, expiresAt: null }
@@ -526,7 +532,7 @@ export async function getDecryptedSegment(index: number): Promise<Buffer> {
 
 export async function downloadHlsVideoForOffline(
   onProgress: (progress: HlsDownloadProgress) => void,
-  sourceUrl = DEFAULT_HLS_SOURCE
+  sourceUrl?: string
 ): Promise<OfflineVideoStatus> {
   if (isDownloadActive()) {
     throw new Error('938 : A download is already in progress.')
@@ -534,7 +540,7 @@ export async function downloadHlsVideoForOffline(
 
   getHlsKey()
 
-  const remote = await resolveRemotePlaylist(sourceUrl)
+  const remote = await resolveRemotePlaylist(await resolveHlsSourceUrl(sourceUrl))
   beginDownload(remote.segments.length)
 
   const emit = async (): Promise<void> => {
@@ -626,7 +632,7 @@ export function cancelHlsOfflineDownload(): void {
  */
 export async function downloadHlsVideoToMemory(
   onProgress: (progress: MemoryVideoStatus) => void,
-  sourceUrl = DEFAULT_HLS_SOURCE
+  sourceUrl?: string
 ): Promise<MemoryVideoStatus> {
   if (isMemoryDownloadActive() || isDownloadActive()) {
     throw new Error('938 : A download is already in progress.')
@@ -634,7 +640,7 @@ export async function downloadHlsVideoToMemory(
 
   getHlsKey()
 
-  const remote = await resolveRemotePlaylist(sourceUrl)
+  const remote = await resolveRemotePlaylist(await resolveHlsSourceUrl(sourceUrl))
   beginMemoryDownload(remote.segments.length)
 
   const emit = (): void => {

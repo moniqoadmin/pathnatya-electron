@@ -19,6 +19,11 @@ import {
   prepareHlsVideo
 } from './hls-service'
 import { clearHlsKey, setHlsKey } from './hls-key'
+import {
+  clearHlsAppConfiguration,
+  loadHlsAppConfiguration,
+  saveHlsAppConfiguration
+} from './hls-config'
 import { purgeExpiredOfflineVideo } from './hls-offline'
 import { getKnownBindingMacs, getSystemMacAddress } from './device-mac'
 import { getRuntimeValueA, getRuntimeValueB } from './runtime-values'
@@ -578,6 +583,14 @@ app.whenReady().then(async () => {
     clearHlsKey()
   })
 
+  ipcMain.handle('set-app-configuration', async (_event, payload: unknown) => {
+    await saveHlsAppConfiguration(payload)
+  })
+
+  ipcMain.handle('clear-app-configuration', () => {
+    clearHlsAppConfiguration()
+  })
+
   ipcMain.handle('prepare-video', async (_event, sourceUrl?: string) => {
     const blocked = videoBlockedReason()
     if (blocked) {
@@ -701,6 +714,7 @@ app.whenReady().then(async () => {
   // Record the MAC while an adapter is still up: once the machine goes offline the OS
   // stops reporting it, and the offline video package is sealed against it.
   await getKnownBindingMacs()
+  await loadHlsAppConfiguration()
 
   console.log('runtime value A:', getRuntimeValueA())
   console.log('runtime value B:', getRuntimeValueB())

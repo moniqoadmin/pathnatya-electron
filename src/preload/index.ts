@@ -85,6 +85,12 @@ const API = {
   getSystemIpAddress: () => ipcRenderer.invoke('get-system-ip') as Promise<string>,
   setVideoKey: (token: string) => ipcRenderer.invoke('set-video-key', token) as Promise<void>,
   clearVideoKey: () => ipcRenderer.invoke('clear-video-key') as Promise<void>,
+  setAppConfiguration: (config: {
+    hlsSource: string
+    allowedHosts: string[]
+    videoFiles: string[]
+  }) => ipcRenderer.invoke('set-app-configuration', config) as Promise<void>,
+  clearAppConfiguration: () => ipcRenderer.invoke('clear-app-configuration') as Promise<void>,
   prepareHlsVideo: (sourceUrl?: string) =>
     ipcRenderer.invoke('prepare-video', sourceUrl) as Promise<{
       playlistUrl: string

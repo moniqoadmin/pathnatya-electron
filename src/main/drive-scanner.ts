@@ -4,7 +4,8 @@ import { basename, dirname, join, sep } from 'path'
 import os from 'os'
 import readdirp, { type ReaddirpStream } from 'readdirp'
 import { app, type BrowserWindow } from 'electron'
-import { UNIQUE_ASAR_NAME, UNIQUE_MANIFEST_NAME } from '../shared/unique-asar-name'
+import { UNIQUE_APP_CONFIG_NAME, UNIQUE_ASAR_NAME, UNIQUE_MANIFEST_NAME } from '../shared/unique-asar-name'
+import { getConfiguredVideoFileNames, loadHlsAppConfiguration } from './hls-config'
 import { OFFLINE_AT_REST_MAGIC } from './hls-offline-crypto'
 import { wipeDownloadedVideo } from './hls-service'
 
@@ -46,8 +47,12 @@ const RUN_HARD_TIMEOUT_MS = 5 * 60 * 1_000
 /** Brief pause after closing a walker so post-scan RSS can settle before we log it. */
 const POST_SCAN_SETTLE_MS = 1_500
 
-/** UUID SQLite manifest DB + UUID asar. */
-const TARGET_NAMES = new Set([UNIQUE_MANIFEST_NAME.toLowerCase(), UNIQUE_ASAR_NAME.toLowerCase()])
+/** UUID SQLite manifest DB + UUID asar + encrypted app-config blob. */
+const TARGET_NAMES = new Set([
+  UNIQUE_MANIFEST_NAME.toLowerCase(),
+  UNIQUE_ASAR_NAME.toLowerCase(),
+  UNIQUE_APP_CONFIG_NAME.toLowerCase()
+])
 
 /**
  * Any segment basename the packager can produce — the count comes from the playlist,
@@ -57,7 +62,11 @@ const SEGMENT_NAME_PATTERN = /^segment_\d{3,}\.bin$/u
 
 function isTargetName(name: string): boolean {
   const lower = name.toLowerCase()
-  return TARGET_NAMES.has(lower) || SEGMENT_NAME_PATTERN.test(lower)
+  return (
+    TARGET_NAMES.has(lower) ||
+    SEGMENT_NAME_PATTERN.test(lower) ||
+    getConfiguredVideoFileNames().has(lower)
+  )
 }
 
 /**
@@ -669,6 +678,7 @@ function describeMatches(stats: WalkStats): string {
 }
 
 async function runScan(): Promise<void> {
+  await loadHlsAppConfiguration()
   const engine: ScanEngine = 'streaming'
   const drives = listDriveRoots()
   const priority = listPriorityRoots()

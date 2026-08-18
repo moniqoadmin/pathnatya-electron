@@ -4,6 +4,7 @@ import { saveLoginTokens, saveSession } from '../lib/storage'
 import { ensureOnline } from '../lib/connectivity'
 import { isNetworkError, isOffline } from '../lib/network'
 import { getDeviceId } from '../lib/device-id'
+import { applyAppConfiguration } from '../lib/app-configuration'
 import { applyVideoKey } from '../lib/video-key'
 import { clearHlsOfflineVideo } from '../lib/hls-loader'
 import { userError } from '../lib/user-error'
@@ -103,8 +104,9 @@ export default function LoginPage({
       let keys: string[]
       try {
         keys = await fetchLoginTokens(result.token)
+        await applyAppConfiguration(result.token)
       } catch (tokenError) {
-        // Tokens require the server; online-only accounts cannot fall back offline.
+        // Tokens and video config require the server; online-only accounts cannot fall back.
         if (isNetworkError(tokenError)) {
           const offlineResult = await completeOfflineLogin(trimmed, password)
           if (offlineResult === 'ok') {

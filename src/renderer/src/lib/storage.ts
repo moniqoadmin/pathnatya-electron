@@ -1,4 +1,5 @@
 import type { Account } from '../api/accounts'
+import { clearAppConfiguration } from './app-configuration'
 import { clearVideoKey } from './video-key'
 
 /** Legacy localStorage keys — purged so older plaintext tokens do not linger. */
@@ -53,6 +54,7 @@ export function clearSession(): void {
   watermarkPhoneNumber = null
   loginTokens = null
   clearVideoKey()
+  clearAppConfiguration()
   purgeLegacyStorage()
 }
 
