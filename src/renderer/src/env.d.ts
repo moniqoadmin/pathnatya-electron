@@ -122,9 +122,12 @@ export interface PathnatyaAPI {
   tryOfflineLogin: (phoneNumber: string, password: string) => Promise<OfflineLoginResult>
   isOfflineCheckInRequired: () => Promise<boolean>
   renewOfflineCheckIn: () => Promise<boolean>
+  syncTrustedTimeOnLogin: () => Promise<number | null>
+  syncTrustedTimeOnFullscreenClick: () => Promise<number | null>
   clearOfflineSession: () => Promise<void>
   onSessionInterrupted: (callback: () => void) => () => void
   onResetToLogin: (callback: () => void) => () => void
+  onLogoutShortcut: (callback: () => void) => () => void
   onWindowBlur: (callback: () => void) => () => void
   setDriveScanEnabled: (enabled: boolean) => Promise<void>
   getScreenCaptureState: () => Promise<ScreenCaptureState>

@@ -283,6 +283,17 @@ export default function App() {
     setPage('landing')
   }, [])
 
+  useEffect(() => {
+    const subscribe = window.pathnatya.onLogoutShortcut
+    if (typeof subscribe !== 'function') {
+      return
+    }
+
+    return subscribe(() => {
+      handleLogout()
+    })
+  }, [handleLogout])
+
   const handleVideoReady = useCallback(() => {
     setPage('video')
   }, [])
@@ -407,6 +418,7 @@ export default function App() {
     content = (
       <PreparingVideoPage
         storage={account.isOffline ? 'disk' : 'memory'}
+        showLogoutButton={account.logoutButton === true}
         onReady={handleVideoReady}
         onLogout={handleLogout}
       />

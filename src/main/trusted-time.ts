@@ -13,8 +13,8 @@ const TIME_PATH = '/health/time'
  * Both values are epoch ms (GMT/UTC); small skew covers network and scheduling jitter.
  */
 export const CLOCK_SKEW_TOLERANCE_MS = 2 * 60 * 1000
-/** How often to re-fetch server GMT and compare to the local clock while the app runs. */
-export const CLOCK_SKEW_POLL_MS = 60_000
+/** Re-fetch server GMT on every Nth fullscreen-button click. */
+export const FULLSCREEN_TIME_SYNC_EVERY_CLICKS = 5
 /** Offline downloads must re-verify server time at least this often. */
 export const TRUSTED_CHECKIN_TTL_MS = 2 * 24 * 60 * 60 * 1000
 /** Temporary jump applied to effective now after each offline OS reboot. */
@@ -80,8 +80,9 @@ let persistQueue: Promise<void> = Promise.resolve()
 let lastSkewMs: number | null = null
 let clockMismatched = false
 let clockChecked = false
-let skewPollTimeoutId: ReturnType<typeof setTimeout> | null = null
-let skewPollInflight: Promise<void> | null = null
+/** Process-local count of fullscreen-button clicks since launch. */
+let fullscreenClickCount = 0
+let triggerSyncInflight: Promise<number | null> | null = null
 
 function statePath(): string {
   return join(app.getPath('userData'), STATE_FILE)
@@ -303,50 +304,60 @@ export function getRebootProtectionState(): RebootProtectionState {
   }
 }
 
-/**
- * Re-sync server GMT on a fixed interval so a clock change after launch still blocks
- * video. Failed polls keep the previous verdict (offline must not clear a mismatch).
- */
-export function startTrustedTimeWatch(): void {
-  stopTrustedTimeWatch()
-
-  const tick = (): void => {
-    if (skewPollInflight) {
-      skewPollTimeoutId = setTimeout(tick, CLOCK_SKEW_POLL_MS)
-      return
-    }
-
-    skewPollInflight = syncTrustedTime()
-      .then((serverNow) => {
-        const clock = getClockSkewVerdict()
-        if (clock.mismatched) {
-          console.warn(
-            `[trusted-time] clock mismatch — |server−local|=${clock.skewMs}ms; video blocked`
-          )
-        } else {
-          console.log('[trusted-time] re-synced', new Date(serverNow).toISOString())
-        }
-      })
-      .catch((error) => {
-        console.warn('[trusted-time] periodic sync failed; keeping last verdict', error)
-      })
-      .finally(() => {
-        skewPollInflight = null
-        if (skewPollTimeoutId !== null) {
-          skewPollTimeoutId = setTimeout(tick, CLOCK_SKEW_POLL_MS)
-        }
-      })
+function logTrustedTimeSync(source: string, serverNow: number): void {
+  const clock = getClockSkewVerdict()
+  if (clock.mismatched) {
+    console.warn(
+      `[trusted-time] clock mismatch after ${source} — |server−local|=${clock.skewMs}ms; video blocked`
+    )
+    return
   }
 
-  // Startup already synced once; wait a full interval before the next compare.
-  skewPollTimeoutId = setTimeout(tick, CLOCK_SKEW_POLL_MS)
+  console.log(`[trusted-time] re-synced on ${source}`, new Date(serverNow).toISOString())
 }
 
-export function stopTrustedTimeWatch(): void {
-  if (skewPollTimeoutId !== null) {
-    clearTimeout(skewPollTimeoutId)
-    skewPollTimeoutId = null
+/**
+ * Fetch server GMT for a user action. Concurrent triggers share one in-flight request.
+ * A failed fetch keeps the previous clock verdict (offline must not clear a mismatch).
+ */
+async function syncTrustedTimeOnTrigger(source: string): Promise<number | null> {
+  if (triggerSyncInflight) {
+    return triggerSyncInflight
   }
+
+  triggerSyncInflight = syncTrustedTime()
+    .then((serverNow) => {
+      logTrustedTimeSync(source, serverNow)
+      return serverNow
+    })
+    .catch((error) => {
+      console.warn(`[trusted-time] ${source} sync failed; keeping last verdict`, error)
+      return null
+    })
+    .finally(() => {
+      triggerSyncInflight = null
+    })
+
+  return triggerSyncInflight
+}
+
+/** Login (and other explicit online check-ins) re-fetch server GMT. */
+export async function syncTrustedTimeOnLogin(): Promise<number | null> {
+  fullscreenClickCount = 0
+  return syncTrustedTimeOnTrigger('login')
+}
+
+/**
+ * Count a fullscreen-button click. Every 5th click re-fetches server GMT so a
+ * clock change after login still blocks video. Other clicks are a no-op.
+ */
+export async function syncTrustedTimeOnFullscreenClick(): Promise<number | null> {
+  fullscreenClickCount += 1
+  if (fullscreenClickCount % FULLSCREEN_TIME_SYNC_EVERY_CLICKS !== 0) {
+    return null
+  }
+
+  return syncTrustedTimeOnTrigger('fullscreen')
 }
 
 function nextCheckInExpiresAtMs(
@@ -673,9 +684,8 @@ export async function __flushTrustedTimePersistForTests(): Promise<void> {
 
 /** Test helper — reset in-memory state between cases. */
 export async function __resetTrustedTimeForTests(): Promise<void> {
-  stopTrustedTimeWatch()
   await persistQueue
-  await skewPollInflight
+  await triggerSyncInflight
   memory = null
   loaded = false
   monoNsAtSync = null
@@ -684,6 +694,8 @@ export async function __resetTrustedTimeForTests(): Promise<void> {
   lastSkewMs = null
   clockMismatched = false
   clockChecked = false
+  fullscreenClickCount = 0
+  triggerSyncInflight = null
 }
 
 /** Test helper — inject a sync without hitting the network. */

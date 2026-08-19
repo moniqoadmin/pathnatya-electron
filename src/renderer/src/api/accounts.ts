@@ -30,6 +30,8 @@ export interface Account {
   dom_security?: boolean
   /** Max offline OS reboots before an online check-in is required. */
   numberOfReboot?: number
+  /** When true, show the logout button in the app top bar. */
+  logoutButton?: boolean
   /** Copied from login `team.teamNumber` for the video watermark. */
   teamNumber?: number
 }
@@ -50,6 +52,8 @@ export interface LoginResponse {
   dom_security?: boolean
   /** Prefer account.numberOfReboot; kept for APIs that return it at the root. */
   numberOfReboot?: number
+  /** Prefer account.logoutButton; kept for APIs that return it at the root. */
+  logoutButton?: boolean
 }
 
 export interface LoginTokenResponse {

@@ -47,6 +47,7 @@ const {
   __seedTrustedTimeForTests,
   CLOCK_SKEW_TOLERANCE_MS,
   DEFAULT_NUMBER_OF_REBOOT,
+  FULLSCREEN_TIME_SYNC_EVERY_CLICKS,
   OFFLINE_REBOOT_PENALTY_MS,
   TRUSTED_CHECKIN_TTL_MS,
   applyOfflineRebootProtection,
@@ -59,7 +60,9 @@ const {
   loadTrustedTime,
   readTrustedNow,
   setNumberOfRebootFromAccount,
-  syncTrustedTime
+  syncTrustedTime,
+  syncTrustedTimeOnFullscreenClick,
+  syncTrustedTimeOnLogin
 } = await import('./trusted-time')
 
 function mockServerTime(serverMs: number): void {
@@ -499,5 +502,42 @@ describe('trusted-time', () => {
     expect(getRebootProtectionState().offlineRebootCount).toBe(0)
     expect(getRebootProtectionState().numberOfReboot).toBe(1)
     expect(isOfflineRebootLimitReached()).toBe(false)
+  })
+
+  it('syncs on login and only every 5th fullscreen click', async () => {
+    const serverMs = Date.now()
+    mockServerTime(serverMs)
+
+    await expect(syncTrustedTimeOnLogin()).resolves.toBe(serverMs)
+    expect(net.fetch).toHaveBeenCalledTimes(1)
+
+    mockServerTime(serverMs + 1_000)
+    for (let click = 1; click < FULLSCREEN_TIME_SYNC_EVERY_CLICKS; click += 1) {
+      await expect(syncTrustedTimeOnFullscreenClick()).resolves.toBeNull()
+    }
+    expect(net.fetch).toHaveBeenCalledTimes(1)
+
+    await expect(syncTrustedTimeOnFullscreenClick()).resolves.toBe(serverMs + 1_000)
+    expect(net.fetch).toHaveBeenCalledTimes(2)
+
+    mockServerTime(serverMs + 2_000)
+    for (let click = 1; click < FULLSCREEN_TIME_SYNC_EVERY_CLICKS; click += 1) {
+      await expect(syncTrustedTimeOnFullscreenClick()).resolves.toBeNull()
+    }
+    await expect(syncTrustedTimeOnFullscreenClick()).resolves.toBe(serverMs + 2_000)
+    expect(net.fetch).toHaveBeenCalledTimes(3)
+
+    mockServerTime(serverMs + 3_000)
+    for (let click = 1; click < FULLSCREEN_TIME_SYNC_EVERY_CLICKS; click += 1) {
+      await expect(syncTrustedTimeOnFullscreenClick()).resolves.toBeNull()
+    }
+    expect(net.fetch).toHaveBeenCalledTimes(3)
+
+    await expect(syncTrustedTimeOnLogin()).resolves.toBe(serverMs + 3_000)
+    expect(net.fetch).toHaveBeenCalledTimes(4)
+
+    mockServerTime(serverMs + 4_000)
+    await expect(syncTrustedTimeOnFullscreenClick()).resolves.toBeNull()
+    expect(net.fetch).toHaveBeenCalledTimes(4)
   })
 })

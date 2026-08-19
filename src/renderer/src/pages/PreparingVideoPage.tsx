@@ -17,6 +17,7 @@ import { extractCodedError, userError } from '../lib/user-error'
 interface PreparingVideoPageProps {
   /** Disk package for offline accounts; RAM-only for online accounts. */
   storage: 'disk' | 'memory'
+  showLogoutButton?: boolean
   onReady: () => void
   onLogout: () => void
 }
@@ -39,6 +40,7 @@ function stageMessage(percent: number): string {
 
 export default function PreparingVideoPage({
   storage,
+  showLogoutButton = false,
   onReady,
   onLogout
 }: PreparingVideoPageProps) {
@@ -189,9 +191,11 @@ export default function PreparingVideoPage({
           <p className="sanskrit-header">Jay Yogeshwar</p>
           <h1>Pathnatya 2026</h1>
         </div>
-        <button type="button" className="app-topbar-logout" onClick={handleLogoutClick}>
-          Logout
-        </button>
+        {showLogoutButton && (
+          <button type="button" className="app-topbar-logout" onClick={handleLogoutClick}>
+            Logout
+          </button>
+        )}
       </header>
 
       <section className="preparing-card card">

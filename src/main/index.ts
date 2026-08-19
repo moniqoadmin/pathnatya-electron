@@ -43,8 +43,9 @@ import {
   getClockSkewVerdict,
   getRebootProtectionState,
   loadTrustedTime,
-  startTrustedTimeWatch,
-  syncTrustedTime
+  syncTrustedTime,
+  syncTrustedTimeOnFullscreenClick,
+  syncTrustedTimeOnLogin
 } from './trusted-time'
 import { enforceDesktopLaptopOnly } from './platform-guard'
 import {
@@ -261,9 +262,52 @@ function isDevToolsShortcut(input: Electron.Input): boolean {
   return false
 }
 
+function isLogoutShortcut(input: Electron.Input): boolean {
+  if (input.type !== 'keyDown' || input.isAutoRepeat) {
+    return false
+  }
+
+  if (input.key.toLowerCase() !== 'h') {
+    return false
+  }
+
+  // Windows / Linux: Ctrl+Shift+H
+  if (input.control && input.shift && !input.alt && !input.meta) {
+    return true
+  }
+
+  // macOS: Cmd+Shift+H
+  if (input.meta && input.shift && !input.alt && !input.control) {
+    return true
+  }
+
+  return false
+}
+
+function isResetShortcut(input: Electron.Input): boolean {
+  if (input.type !== 'keyDown' || input.isAutoRepeat) {
+    return false
+  }
+
+  if (input.key.toLowerCase() !== 'r') {
+    return false
+  }
+
+  // Windows / Linux: Ctrl+Shift+R
+  if (input.control && input.shift && !input.alt && !input.meta) {
+    return true
+  }
+
+  // macOS: Cmd+Shift+R
+  if (input.meta && input.shift && !input.alt && !input.control) {
+    return true
+  }
+
+  return false
+}
+
 function registerInputGuards(mainWindow: BrowserWindow): void {
   let resetInProgress = false
-  let resetChordArmed = false
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (isDevToolsShortcut(input)) {
@@ -274,28 +318,19 @@ function registerInputGuards(mainWindow: BrowserWindow): void {
       return
     }
 
-    const key = input.key.toLowerCase()
-    const hasModifiers = input.control && input.shift && input.alt
-
-    if (input.type === 'keyUp') {
-      if (key === 'r' || !hasModifiers) {
-        resetChordArmed = false
+    if (isLogoutShortcut(input)) {
+      event.preventDefault()
+      if (!mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('logout-shortcut')
       }
       return
     }
 
-    if (key === 'r' && hasModifiers) {
-      resetChordArmed = true
-      event.preventDefault()
-      return
-    }
-
-    if (key !== 's' || !hasModifiers || !resetChordArmed || resetInProgress) {
+    if (!isResetShortcut(input) || resetInProgress) {
       return
     }
 
     event.preventDefault()
-    resetChordArmed = false
     resetInProgress = true
     cancelHlsOfflineDownload()
     cancelHlsMemoryDownload()
@@ -685,6 +720,12 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('renew-offline-checkin', () => renewOfflineCheckIn())
 
+  ipcMain.handle('sync-trusted-time-on-login', () => syncTrustedTimeOnLogin())
+
+  ipcMain.handle('sync-trusted-time-on-fullscreen-click', () =>
+    syncTrustedTimeOnFullscreenClick()
+  )
+
   ipcMain.handle('clear-offline-session', async () => {
     await clearOfflineSession()
   })
@@ -739,7 +780,6 @@ app.whenReady().then(async () => {
       )
     }
   }
-  startTrustedTimeWatch()
 
   await purgeExpiredOfflineVideo()
   await cleanupPermissionProbe()

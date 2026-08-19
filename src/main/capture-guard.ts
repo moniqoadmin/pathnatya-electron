@@ -437,7 +437,7 @@ async function detectCapture(): Promise<ScreenCaptureState> {
   }
 
   // Wrong system clock vs server GMT — refuse playback until the user fixes time
-  // and restarts (startup sync is what sets this verdict).
+  // and restarts (login / every 5th fullscreen click re-stamps this verdict).
   const clock = getClockSkewVerdict()
   if (clock.mismatched) {
     return { active: true, appName: 'system clock', reason: 'clock-mismatch' }

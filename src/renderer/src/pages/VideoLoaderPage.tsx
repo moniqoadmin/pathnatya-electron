@@ -169,6 +169,8 @@ export default function VideoLoaderPage({
   })
 
   const toggleFullscreen = useEffectEvent(() => {
+    void window.pathnatya.syncTrustedTimeOnFullscreenClick()
+
     if (document.fullscreenElement) {
       void document.exitFullscreen().catch(() => {})
       return
@@ -685,9 +687,11 @@ export default function VideoLoaderPage({
           <p className="sanskrit-header">Jay Yogeshwar</p>
           <h1>Pathnatya 2026</h1>
         </div>
-        <button type="button" className="app-topbar-logout" onClick={handleLogout}>
-          Logout
-        </button>
+        {account.logoutButton === true && (
+          <button type="button" className="app-topbar-logout" onClick={handleLogout}>
+            Logout
+          </button>
+        )}
       </header>
 
       <section ref={videoContainerRef} className="video-card card">

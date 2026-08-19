@@ -88,7 +88,7 @@ export default function LoginPage({
         return
       }
 
-      await window.pathnatya.renewOfflineCheckIn()
+      await window.pathnatya.syncTrustedTimeOnLogin()
 
       const deviceId = await getDeviceId()
       const result = await login(trimmed, password, deviceId)
@@ -98,6 +98,7 @@ export default function LoginPage({
         chokidar: true,
         dom_security: true,
         numberOfReboot: result.numberOfReboot ?? result.account.numberOfReboot,
+        logoutButton: (result.logoutButton ?? result.account.logoutButton) === true,
         teamNumber: result.team?.teamNumber ?? result.account.teamNumber
       }
       saveSession(result.token, account)

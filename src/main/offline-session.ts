@@ -39,6 +39,7 @@ export interface OfflineAccount {
   chokidar?: boolean
   dom_security?: boolean
   numberOfReboot?: number
+  logoutButton?: boolean
   teamNumber?: number
 }
 
