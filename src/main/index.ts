@@ -338,8 +338,22 @@ function isResetShortcut(input: Electron.Input): boolean {
   return false
 }
 
+function isAltClick(mouse: Electron.MouseInputEvent): boolean {
+  if (mouse.type !== 'mouseDown' && mouse.type !== 'mouseUp' && mouse.type !== 'contextMenu') {
+    return false
+  }
+
+  return Boolean(mouse.modifiers?.includes('alt'))
+}
+
 function registerInputGuards(mainWindow: BrowserWindow): void {
   let resetInProgress = false
+
+  mainWindow.webContents.on('before-mouse-event', (event, mouse) => {
+    if (isAltClick(mouse)) {
+      event.preventDefault()
+    }
+  })
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (isDevToolsShortcut(input)) {
