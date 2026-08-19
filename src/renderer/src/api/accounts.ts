@@ -30,11 +30,18 @@ export interface Account {
   dom_security?: boolean
   /** Max offline OS reboots before an online check-in is required. */
   numberOfReboot?: number
+  /** Copied from login `team.teamNumber` for the video watermark. */
+  teamNumber?: number
+}
+
+export interface LoginTeam {
+  teamNumber: number
 }
 
 export interface LoginResponse {
   account: Account
   token: string
+  team?: LoginTeam
   /** Prefer account.isOffline; kept for APIs that return it at the root. */
   isOffline?: boolean
   /** Prefer account.chokidar; kept for APIs that return it at the root. */

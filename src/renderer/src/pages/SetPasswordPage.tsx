@@ -67,6 +67,9 @@ export default function SetPasswordPage({ phoneNumber, onBack, onSuccess }: SetP
         </header>
 
         <div className="card team-number-card">
+          <p className="team-number-reminder">
+            Let's remember the team number — write it down somewhere if needed.
+          </p>
           <button type="button" className="btn btn-primary" onClick={onSuccess}>
             Continue
           </button>

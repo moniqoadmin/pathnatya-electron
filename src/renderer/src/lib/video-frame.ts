@@ -4,7 +4,7 @@ export const WATERMARK_DURATION_S = 24
 /**
  * x/y are 0–1 positions of the watermark's top-left inside the padded,
  * text-sized safe rectangle (not raw video pixels). That keeps the full
- * phone number on-screen on both the left and right edges.
+ * phone number and team number on-screen on both the left and right edges.
  */
 const WATERMARK_KEYFRAMES: Array<{ t: number; x: number; y: number }> = [
   { t: 0, x: 0, y: 0 },
@@ -53,7 +53,8 @@ export function formatTime(seconds: number): string {
 export function drawWatermarkedFrame(
   video: HTMLVideoElement,
   canvas: HTMLCanvasElement,
-  watermarkText: string
+  watermarkText: string,
+  watermarkSubtext = ''
 ): void {
   if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
     return
@@ -110,8 +111,12 @@ export function drawWatermarkedFrame(
   ctx.shadowOffsetY = 2
   ctx.letterSpacing = '0.08em'
 
-  const textWidth = ctx.measureText(watermarkText).width
-  const textHeight = fontSize * 1.15
+  const lines = watermarkSubtext
+    ? [watermarkText, `Team number : ${watermarkSubtext}`]
+    : [watermarkText]
+  const lineHeight = fontSize * 1.2
+  const textWidth = Math.max(...lines.map((line) => ctx.measureText(line).width))
+  const textHeight = lineHeight * lines.length
   const padX = Math.max(12, drawWidth * 0.03)
   const padY = Math.max(12, drawHeight * 0.03)
   const minX = offsetX + padX
@@ -121,6 +126,8 @@ export function drawWatermarkedFrame(
   const textX = minX + Math.max(0, maxX - minX) * x
   const textY = minY + Math.max(0, maxY - minY) * y
 
-  ctx.fillText(watermarkText, textX, textY)
+  for (let i = 0; i < lines.length; i += 1) {
+    ctx.fillText(lines[i], textX, textY + i * lineHeight)
+  }
   ctx.restore()
 }

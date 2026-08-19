@@ -80,6 +80,13 @@ body {
   text-align: center;
 }
 
+.team-number-reminder {
+  margin: 0 0 8px;
+  color: #fde68a;
+  font-size: 1.05rem;
+  line-height: 1.45;
+}
+
 .team-number-card .btn-primary {
   min-width: 200px;
 }

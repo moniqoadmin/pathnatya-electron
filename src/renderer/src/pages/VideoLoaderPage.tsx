@@ -29,7 +29,12 @@ import { isLowDownloadSpeed, isOffline } from '../lib/network'
 import { readStoredVolume, writeStoredVolume } from '../lib/player-prefs'
 import { userError } from '../lib/user-error'
 import { watchVideoPlayerDom } from '../lib/dom-integrity'
-import { clearAllStorage, clearSession, getWatermarkPhoneNumber } from '../lib/storage'
+import {
+  clearAllStorage,
+  clearSession,
+  getWatermarkPhoneNumber,
+  getWatermarkTeamNumber
+} from '../lib/storage'
 import { drawWatermarkedFrame, formatTime } from '../lib/video-frame'
 
 interface VideoLoaderPageProps {
@@ -72,6 +77,9 @@ export default function VideoLoaderPage({
   const watermarkTextRef = useRef(
     getWatermarkPhoneNumber() || String(account.phoneNumber ?? '')
   )
+  const watermarkTeamRef = useRef(
+    getWatermarkTeamNumber() ?? (account.teamNumber == null ? '' : String(account.teamNumber))
+  )
 
   const [reloadToken, setReloadToken] = useState(0)
   const [playbackReady, setPlaybackReady] = useState(false)
@@ -97,7 +105,7 @@ export default function VideoLoaderPage({
     const video = videoRef.current
     const canvas = canvasRef.current
     if (video && canvas) {
-      drawWatermarkedFrame(video, canvas, watermarkTextRef.current)
+      drawWatermarkedFrame(video, canvas, watermarkTextRef.current, watermarkTeamRef.current)
     }
   })
 
@@ -504,7 +512,7 @@ export default function VideoLoaderPage({
     }
   }, [playbackReady, isFullscreen])
 
-  // Silently re-assert the login-time phone snapshot so in-memory edits do not stick.
+  // Silently re-assert the login-time phone and team snapshots so in-memory edits do not stick.
   useEffect(() => {
     if (!playbackReady) {
       return
@@ -514,6 +522,11 @@ export default function VideoLoaderPage({
       const phone = getWatermarkPhoneNumber()
       if (phone) {
         watermarkTextRef.current = phone
+      }
+
+      const team = getWatermarkTeamNumber()
+      if (team != null) {
+        watermarkTeamRef.current = team
       }
     }
 

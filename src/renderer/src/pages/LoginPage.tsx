@@ -97,7 +97,8 @@ export default function LoginPage({
         isOffline: result.isOffline ?? result.account.isOffline,
         chokidar: true,
         dom_security: true,
-        numberOfReboot: result.numberOfReboot ?? result.account.numberOfReboot
+        numberOfReboot: result.numberOfReboot ?? result.account.numberOfReboot,
+        teamNumber: result.team?.teamNumber ?? result.account.teamNumber
       }
       saveSession(result.token, account)
 
