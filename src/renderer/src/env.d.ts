@@ -80,7 +80,7 @@ export interface AppPermissionsStatus {
 }
 
 export interface PathnatyaAPI {
-  getVersion: () => string
+  getVersion: () => Promise<string>
   getPlatform: () => string
   isPackaged: () => Promise<boolean>
   getDeviceId: () => Promise<{ id: string; type: 'mac' | 'ip' | 'uuid' | '' }>

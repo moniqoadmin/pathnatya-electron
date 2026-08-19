@@ -1,7 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-const API_VERSION = '1.0.0'
-
 export type HlsOfflineStatus = {
   available: boolean
   downloading: boolean
@@ -76,7 +74,7 @@ export type AppPermissionsStatus = {
 }
 
 const API = {
-  getVersion: () => API_VERSION,
+  getVersion: () => ipcRenderer.invoke('get-version') as Promise<string>,
   getPlatform: () => process.platform,
   isPackaged: () => ipcRenderer.invoke('is-packaged') as Promise<boolean>,
   getDeviceId: () =>

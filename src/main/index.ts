@@ -564,6 +564,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('get-system-ip', () => getSystemIpAddress())
 
   ipcMain.handle('is-packaged', () => app.isPackaged)
+  ipcMain.handle('get-version', () => app.getVersion())
 
   ipcMain.handle('get-screen-capture-state', () => getScreenCaptureState())
 

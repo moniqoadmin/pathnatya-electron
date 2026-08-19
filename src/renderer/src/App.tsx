@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Account } from './api/accounts'
+import { fetchServerVersion, isNewerVersion } from './api/health'
 import { postAppLog, reportAppLog, type AppLogEvent } from './api/logs'
 import { startConnectivityWatch, subscribeConnectivity } from './lib/connectivity'
 import { clearHlsMemoryVideo, clearHlsPlayback, wipeDownloadedVideo } from './lib/hls-loader'
@@ -10,6 +11,7 @@ import PermissionsPage from './pages/PermissionsPage'
 import PhoneCheckPage from './pages/PhoneCheckPage'
 import PreparingVideoPage from './pages/PreparingVideoPage'
 import SetPasswordPage from './pages/SetPasswordPage'
+import UpdateRequiredPage from './pages/UpdateRequiredPage'
 import VideoLoaderPage from './pages/VideoLoaderPage'
 import TamperWarning from './components/TamperWarning'
 import AlwaysOnTopGate from './components/AlwaysOnTopGate'
@@ -75,6 +77,8 @@ async function sendFilesTamperedLog(getToken: () => string | null): Promise<bool
 export default function App() {
   const [permissions, setPermissions] = useState<AppPermissionsStatus | null>(null)
   const [permissionsChecking, setPermissionsChecking] = useState(true)
+  const [updateRequired, setUpdateRequired] = useState(false)
+  const [versionChecked, setVersionChecked] = useState(false)
   const [page, setPage] = useState<Page>('landing')
   const [phoneNumber, setPhoneNumber] = useState('')
   const [account, setAccount] = useState<Account | null>(null)
@@ -116,6 +120,32 @@ export default function App() {
   useEffect(() => {
     void refreshPermissions()
   }, [refreshPermissions])
+
+  useEffect(() => {
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const [current, remote] = await Promise.all([
+          window.pathnatya.getVersion(),
+          fetchServerVersion()
+        ])
+        if (!cancelled && remote && isNewerVersion(remote, current)) {
+          setUpdateRequired(true)
+        }
+      } catch (error) {
+        console.error('Unable to check app version:', error)
+      } finally {
+        if (!cancelled) {
+          setVersionChecked(true)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     const granted = Boolean(permissions?.allRequiredGranted)
@@ -313,7 +343,7 @@ export default function App() {
     void window.pathnatya.relaunchApp()
   }, [])
 
-  if (permissionsChecking && !permissions) {
+  if ((permissionsChecking && !permissions) || !versionChecked) {
     return (
       <>
         <div className="page permissions-page">
@@ -323,6 +353,15 @@ export default function App() {
             <p className="page-subtitle">Checking permissions…</p>
           </header>
         </div>
+        {alwaysOnTopBlocked && <AlwaysOnTopGate />}
+      </>
+    )
+  }
+
+  if (updateRequired) {
+    return (
+      <>
+        <UpdateRequiredPage />
         {alwaysOnTopBlocked && <AlwaysOnTopGate />}
       </>
     )
