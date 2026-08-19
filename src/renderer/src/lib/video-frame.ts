@@ -101,8 +101,11 @@ export function drawWatermarkedFrame(
   const { x, y } = watermarkPosition(progress)
   const fontSize = Math.max(28, Math.min(drawWidth * 0.06, 64))
 
+  const teamFontSize = fontSize * 0.6
+  const teamLine = watermarkSubtext ? `Team number : ${watermarkSubtext}` : ''
+  const fontFamily = '"Segoe UI", system-ui, sans-serif'
+
   ctx.save()
-  ctx.font = `800 ${fontSize}px "Segoe UI", system-ui, sans-serif`
   ctx.fillStyle = 'rgba(255, 255, 255, 0.45)'
   ctx.textBaseline = 'top'
   ctx.textAlign = 'left'
@@ -111,12 +114,15 @@ export function drawWatermarkedFrame(
   ctx.shadowOffsetY = 2
   ctx.letterSpacing = '0.08em'
 
-  const lines = watermarkSubtext
-    ? [watermarkText, `Team number : ${watermarkSubtext}`]
-    : [watermarkText]
-  const lineHeight = fontSize * 1.2
-  const textWidth = Math.max(...lines.map((line) => ctx.measureText(line).width))
-  const textHeight = lineHeight * lines.length
+  ctx.font = `800 ${fontSize}px ${fontFamily}`
+  const phoneWidth = ctx.measureText(watermarkText).width
+  ctx.font = `800 ${teamFontSize}px ${fontFamily}`
+  const teamWidth = teamLine ? ctx.measureText(teamLine).width : 0
+
+  const textWidth = Math.max(phoneWidth, teamWidth)
+  const phoneLineHeight = fontSize * 1.2
+  const teamLineHeight = teamLine ? teamFontSize * 1.2 : 0
+  const textHeight = phoneLineHeight + teamLineHeight
   const padX = Math.max(12, drawWidth * 0.03)
   const padY = Math.max(12, drawHeight * 0.03)
   const minX = offsetX + padX
@@ -126,8 +132,11 @@ export function drawWatermarkedFrame(
   const textX = minX + Math.max(0, maxX - minX) * x
   const textY = minY + Math.max(0, maxY - minY) * y
 
-  for (let i = 0; i < lines.length; i += 1) {
-    ctx.fillText(lines[i], textX, textY + i * lineHeight)
+  ctx.font = `800 ${fontSize}px ${fontFamily}`
+  ctx.fillText(watermarkText, textX, textY)
+  if (teamLine) {
+    ctx.font = `800 ${teamFontSize}px ${fontFamily}`
+    ctx.fillText(teamLine, textX, textY + phoneLineHeight)
   }
   ctx.restore()
 }

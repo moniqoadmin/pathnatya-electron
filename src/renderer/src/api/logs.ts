@@ -1,4 +1,5 @@
 import { apiFetch } from './client'
+import { getDeviceId } from '../lib/device-id'
 import { getSession } from '../lib/storage'
 
 export type AppLogEvent =
@@ -36,10 +37,17 @@ export async function postAppLog(
     return false
   }
 
+  let ipAddress = ''
+  try {
+    ipAddress = await getDeviceId()
+  } catch {
+    ipAddress = ''
+  }
+
   await apiFetch<void>('/logs', {
     method: 'POST',
     authToken: token,
-    json: { event, tampered },
+    json: { event, tampered, ipAddress },
     timeoutMs: fetchOptions?.timeoutMs,
     retries: fetchOptions?.retries
   })
