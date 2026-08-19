@@ -15,6 +15,16 @@ export type AppLogEvent =
   | 'VM_DETECTED'
   | 'CLOCK_MISMATCH'
   | 'RENDER_CRASH'
+  | 'VIDEO_PLAY'
+  | 'VIDEO_PLAY_OFFLINE'
+
+export type AppLogMetadata = Record<string, unknown>
+
+export type PostAppLogOptions = {
+  timeoutMs?: number
+  retries?: number
+  metadata?: AppLogMetadata
+}
 
 /** Drop duplicate fire-and-forget reports for the same event within this window. */
 const LOG_DEDUPE_MS = 60_000
@@ -30,7 +40,7 @@ export async function postAppLog(
   event: AppLogEvent,
   tampered: boolean,
   authToken?: string,
-  fetchOptions?: { timeoutMs?: number; retries?: number }
+  fetchOptions?: PostAppLogOptions
 ): Promise<boolean> {
   const token = authToken ?? getSession()?.token
   if (!token) {
@@ -44,10 +54,16 @@ export async function postAppLog(
     ipAddress = ''
   }
 
+  const metadata = fetchOptions?.metadata
   await apiFetch<void>('/logs', {
     method: 'POST',
     authToken: token,
-    json: { event, tampered, ipAddress },
+    json: {
+      event,
+      tampered,
+      ipAddress,
+      ...(metadata ? { metadata } : {})
+    },
     timeoutMs: fetchOptions?.timeoutMs,
     retries: fetchOptions?.retries
   })

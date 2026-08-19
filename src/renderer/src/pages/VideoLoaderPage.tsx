@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import type Hls from 'hls.js'
 import type { Account } from '../api/accounts'
-import { reportAppLog } from '../api/logs'
+import { postAppLog, reportAppLog } from '../api/logs'
 import OfflineToast from '../components/OfflineToast'
 import {
   IconFullscreen,
@@ -36,6 +36,7 @@ import {
   getWatermarkTeamNumber
 } from '../lib/storage'
 import { drawWatermarkedFrame, formatTime } from '../lib/video-frame'
+import { recordVideoPlayFullscreen, startVideoPlayLogWatch } from '../lib/video-play-log'
 
 interface VideoLoaderPageProps {
   account: Account
@@ -68,6 +69,7 @@ export default function VideoLoaderPage({
   const volumeRef = useRef(readStoredVolume())
   const lastAudibleVolumeRef = useRef(volumeRef.current > 0 ? volumeRef.current : 1)
   const fullscreenEnteredAtRef = useRef(0)
+  const wasFullscreenRef = useRef(false)
   const captureActiveRef = useRef(false)
   const captureWasActiveRef = useRef<boolean | null>(null)
   const vmReportedRef = useRef(false)
@@ -189,10 +191,16 @@ export default function VideoLoaderPage({
     }
   })
 
+  useEffect(() => startVideoPlayLogWatch(postAppLog), [])
+
   // Playback is only allowed in fullscreen, so leaving it pauses the video.
   useEffect(() => {
     const onFullscreenChange = (): void => {
       const active = document.fullscreenElement === videoContainerRef.current
+      if (active && !wasFullscreenRef.current) {
+        recordVideoPlayFullscreen()
+      }
+      wasFullscreenRef.current = active
       setIsFullscreen(active)
 
       const video = videoRef.current
