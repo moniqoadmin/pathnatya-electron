@@ -169,8 +169,6 @@ export default function VideoLoaderPage({
   })
 
   const toggleFullscreen = useEffectEvent(() => {
-    void window.pathnatya.syncTrustedTimeOnFullscreenClick()
-
     if (document.fullscreenElement) {
       void document.exitFullscreen().catch(() => {})
       return

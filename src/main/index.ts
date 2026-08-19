@@ -43,8 +43,8 @@ import {
   getClockSkewVerdict,
   getRebootProtectionState,
   loadTrustedTime,
+  startTrustedTimePeriodicSync,
   syncTrustedTime,
-  syncTrustedTimeOnFullscreenClick,
   syncTrustedTimeOnLogin
 } from './trusted-time'
 import { enforceDesktopLaptopOnly } from './platform-guard'
@@ -723,10 +723,6 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('sync-trusted-time-on-login', () => syncTrustedTimeOnLogin())
 
-  ipcMain.handle('sync-trusted-time-on-fullscreen-click', () =>
-    syncTrustedTimeOnFullscreenClick()
-  )
-
   ipcMain.handle('clear-offline-session', async () => {
     await clearOfflineSession()
   })
@@ -781,6 +777,8 @@ app.whenReady().then(async () => {
       )
     }
   }
+
+  startTrustedTimePeriodicSync()
 
   await purgeExpiredOfflineVideo()
   await cleanupPermissionProbe()

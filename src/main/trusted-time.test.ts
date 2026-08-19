@@ -47,9 +47,9 @@ const {
   __seedTrustedTimeForTests,
   CLOCK_SKEW_TOLERANCE_MS,
   DEFAULT_NUMBER_OF_REBOOT,
-  FULLSCREEN_TIME_SYNC_EVERY_CLICKS,
   OFFLINE_REBOOT_PENALTY_MS,
   TRUSTED_CHECKIN_TTL_MS,
+  TRUSTED_TIME_SYNC_INTERVAL_MS,
   applyOfflineRebootProtection,
   getClockSkewVerdict,
   getRebootProtectionState,
@@ -60,8 +60,8 @@ const {
   loadTrustedTime,
   readTrustedNow,
   setNumberOfRebootFromAccount,
+  startTrustedTimePeriodicSync,
   syncTrustedTime,
-  syncTrustedTimeOnFullscreenClick,
   syncTrustedTimeOnLogin
 } = await import('./trusted-time')
 
@@ -504,40 +504,30 @@ describe('trusted-time', () => {
     expect(isOfflineRebootLimitReached()).toBe(false)
   })
 
-  it('syncs on login and only every 5th fullscreen click', async () => {
+  it('syncs on login and every 10 minutes', async () => {
     const serverMs = Date.now()
     mockServerTime(serverMs)
+
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval')
+    startTrustedTimePeriodicSync()
+    startTrustedTimePeriodicSync()
+    expect(setIntervalSpy).toHaveBeenCalledTimes(1)
+    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), TRUSTED_TIME_SYNC_INTERVAL_MS)
+    const tick = setIntervalSpy.mock.calls[0]?.[0] as () => void
 
     await expect(syncTrustedTimeOnLogin()).resolves.toBe(serverMs)
     expect(net.fetch).toHaveBeenCalledTimes(1)
 
     mockServerTime(serverMs + 1_000)
-    for (let click = 1; click < FULLSCREEN_TIME_SYNC_EVERY_CLICKS; click += 1) {
-      await expect(syncTrustedTimeOnFullscreenClick()).resolves.toBeNull()
-    }
-    expect(net.fetch).toHaveBeenCalledTimes(1)
-
-    await expect(syncTrustedTimeOnFullscreenClick()).resolves.toBe(serverMs + 1_000)
-    expect(net.fetch).toHaveBeenCalledTimes(2)
+    tick()
+    await vi.waitFor(() => {
+      expect(net.fetch).toHaveBeenCalledTimes(2)
+    })
 
     mockServerTime(serverMs + 2_000)
-    for (let click = 1; click < FULLSCREEN_TIME_SYNC_EVERY_CLICKS; click += 1) {
-      await expect(syncTrustedTimeOnFullscreenClick()).resolves.toBeNull()
-    }
-    await expect(syncTrustedTimeOnFullscreenClick()).resolves.toBe(serverMs + 2_000)
+    await expect(syncTrustedTimeOnLogin()).resolves.toBe(serverMs + 2_000)
     expect(net.fetch).toHaveBeenCalledTimes(3)
 
-    mockServerTime(serverMs + 3_000)
-    for (let click = 1; click < FULLSCREEN_TIME_SYNC_EVERY_CLICKS; click += 1) {
-      await expect(syncTrustedTimeOnFullscreenClick()).resolves.toBeNull()
-    }
-    expect(net.fetch).toHaveBeenCalledTimes(3)
-
-    await expect(syncTrustedTimeOnLogin()).resolves.toBe(serverMs + 3_000)
-    expect(net.fetch).toHaveBeenCalledTimes(4)
-
-    mockServerTime(serverMs + 4_000)
-    await expect(syncTrustedTimeOnFullscreenClick()).resolves.toBeNull()
-    expect(net.fetch).toHaveBeenCalledTimes(4)
+    setIntervalSpy.mockRestore()
   })
 })

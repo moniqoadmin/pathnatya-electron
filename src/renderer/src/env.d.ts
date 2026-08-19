@@ -123,7 +123,6 @@ export interface PathnatyaAPI {
   isOfflineCheckInRequired: () => Promise<boolean>
   renewOfflineCheckIn: () => Promise<boolean>
   syncTrustedTimeOnLogin: () => Promise<number | null>
-  syncTrustedTimeOnFullscreenClick: () => Promise<number | null>
   clearOfflineSession: () => Promise<void>
   onSessionInterrupted: (callback: () => void) => () => void
   onResetToLogin: (callback: () => void) => () => void

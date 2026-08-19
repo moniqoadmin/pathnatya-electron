@@ -35,22 +35,11 @@ export async function fetchServerVersion(): Promise<string | null> {
   }
 }
 
-export function isNewerVersion(remote: string, current: string): boolean {
-  const parse = (value: string): number[] =>
-    value.replace(/^v/i, '').split('.').map((part) => {
-      const n = Number.parseInt(part, 10)
-      return Number.isFinite(n) ? n : 0
-    })
+function majorVersion(value: string): number {
+  const n = Number.parseInt(value.replace(/^v/i, '').split('.')[0] ?? '0', 10)
+  return Number.isFinite(n) ? n : 0
+}
 
-  const a = parse(remote)
-  const b = parse(current)
-  const len = Math.max(a.length, b.length)
-  for (let i = 0; i < len; i++) {
-    const x = a[i] ?? 0
-    const y = b[i] ?? 0
-    if (x !== y) {
-      return x > y
-    }
-  }
-  return false
+export function isNewerVersion(remote: string, current: string): boolean {
+  return majorVersion(remote) > majorVersion(current)
 }

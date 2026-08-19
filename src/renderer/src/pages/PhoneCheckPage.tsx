@@ -34,7 +34,6 @@ export default function PhoneCheckPage({
 
     setLoading(true)
     try {
-      // The watcher usually already knows; this only costs a round-trip when stale.
       if (!(await ensureOnline())) {
         await continueOffline(trimmed)
         return

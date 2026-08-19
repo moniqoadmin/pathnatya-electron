@@ -13,8 +13,8 @@ const TIME_PATH = '/health/time'
  * Both values are epoch ms (GMT/UTC); small skew covers network and scheduling jitter.
  */
 export const CLOCK_SKEW_TOLERANCE_MS = 2 * 60 * 1000
-/** Re-fetch server GMT on every Nth fullscreen-button click. */
-export const FULLSCREEN_TIME_SYNC_EVERY_CLICKS = 5
+/** Re-fetch server GMT on this cadence after the startup sync. */
+export const TRUSTED_TIME_SYNC_INTERVAL_MS = 10 * 60 * 1000
 /** Offline downloads must re-verify server time at least this often. */
 export const TRUSTED_CHECKIN_TTL_MS = 2 * 24 * 60 * 60 * 1000
 /** Temporary jump applied to effective now after each offline OS reboot. */
@@ -80,9 +80,8 @@ let persistQueue: Promise<void> = Promise.resolve()
 let lastSkewMs: number | null = null
 let clockMismatched = false
 let clockChecked = false
-/** Process-local count of fullscreen-button clicks since launch. */
-let fullscreenClickCount = 0
 let triggerSyncInflight: Promise<number | null> | null = null
+let periodicSyncTimer: ReturnType<typeof setInterval> | null = null
 
 function statePath(): string {
   return join(app.getPath('userData'), STATE_FILE)
@@ -343,21 +342,30 @@ async function syncTrustedTimeOnTrigger(source: string): Promise<number | null> 
 
 /** Login (and other explicit online check-ins) re-fetch server GMT. */
 export async function syncTrustedTimeOnLogin(): Promise<number | null> {
-  fullscreenClickCount = 0
   return syncTrustedTimeOnTrigger('login')
 }
 
 /**
- * Count a fullscreen-button click. Every 5th click re-fetches server GMT so a
- * clock change after login still blocks video. Other clicks are a no-op.
+ * After the startup sync, re-fetch server GMT every 10 minutes for the life of the process.
+ * Idempotent — later calls are a no-op.
  */
-export async function syncTrustedTimeOnFullscreenClick(): Promise<number | null> {
-  fullscreenClickCount += 1
-  if (fullscreenClickCount % FULLSCREEN_TIME_SYNC_EVERY_CLICKS !== 0) {
-    return null
+export function startTrustedTimePeriodicSync(): void {
+  if (periodicSyncTimer != null) {
+    return
   }
 
-  return syncTrustedTimeOnTrigger('fullscreen')
+  periodicSyncTimer = setInterval(() => {
+    void syncTrustedTimeOnTrigger('interval')
+  }, TRUSTED_TIME_SYNC_INTERVAL_MS)
+}
+
+function stopTrustedTimePeriodicSync(): void {
+  if (periodicSyncTimer == null) {
+    return
+  }
+
+  clearInterval(periodicSyncTimer)
+  periodicSyncTimer = null
 }
 
 function nextCheckInExpiresAtMs(
@@ -684,6 +692,7 @@ export async function __flushTrustedTimePersistForTests(): Promise<void> {
 
 /** Test helper — reset in-memory state between cases. */
 export async function __resetTrustedTimeForTests(): Promise<void> {
+  stopTrustedTimePeriodicSync()
   await persistQueue
   await triggerSyncInflight
   memory = null
@@ -694,7 +703,6 @@ export async function __resetTrustedTimeForTests(): Promise<void> {
   lastSkewMs = null
   clockMismatched = false
   clockChecked = false
-  fullscreenClickCount = 0
   triggerSyncInflight = null
 }
 

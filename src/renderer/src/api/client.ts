@@ -146,8 +146,8 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
         reportNetworkFailure()
       }
 
-      // Retrying is pointless once the connectivity watcher confirms there is no
-      // server to reach; failing fast lets callers switch to offline mode.
+      // Retrying is pointless once a request (or the OS) has already shown we
+      // cannot reach the server; failing fast lets callers switch to offline mode.
       if (retryable && attempt < maxAttempts - 1 && getConnectivity() !== 'offline') {
         await sleep(backoffMs(attempt))
         continue

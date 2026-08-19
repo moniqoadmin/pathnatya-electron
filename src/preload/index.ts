@@ -140,8 +140,6 @@ const API = {
     ipcRenderer.invoke('is-offline-checkin-required') as Promise<boolean>,
   renewOfflineCheckIn: () => ipcRenderer.invoke('renew-offline-checkin') as Promise<boolean>,
   syncTrustedTimeOnLogin: () => ipcRenderer.invoke('sync-trusted-time-on-login') as Promise<number | null>,
-  syncTrustedTimeOnFullscreenClick: () =>
-    ipcRenderer.invoke('sync-trusted-time-on-fullscreen-click') as Promise<number | null>,
   clearOfflineSession: () => ipcRenderer.invoke('clear-offline-session') as Promise<void>,
   onSessionInterrupted: (callback: () => void) => {
     const handler = (): void => {
