@@ -67,6 +67,7 @@ import {
   requestAccessibilityPermission,
   type PermissionId
 } from './permissions-guard'
+import { API_BASE } from '../shared/api-config'
 
 const isDev = !app.isPackaged
 
@@ -106,6 +107,36 @@ protocol.registerSchemesAsPrivileged([
     }
   }
 ])
+
+function rendererContentSecurityPolicy(): string {
+  const apiOrigin = new URL(API_BASE).origin
+  return [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "media-src 'self' pathnatya: blob:",
+    "worker-src 'self' blob:",
+    `connect-src 'self' pathnatya: ${apiOrigin} https://speed.cloudflare.com http://localhost:* ws://localhost:* http://127.0.0.1:* ws://127.0.0.1:*`
+  ].join('; ')
+}
+
+function applyRendererContentSecurityPolicy(): void {
+  const policy = rendererContentSecurityPolicy()
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    if (details.resourceType !== 'mainFrame' && details.resourceType !== 'subFrame') {
+      callback({})
+      return
+    }
+
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [policy]
+      }
+    })
+  })
+}
 
 const execFileAsync = promisify(execFile)
 
@@ -735,6 +766,8 @@ app.whenReady().then(async () => {
   await session.defaultSession.setProxy({
     mode: 'direct'
   })
+
+  applyRendererContentSecurityPolicy()
 
   const allowed = await enforceDesktopLaptopOnly()
   if (!allowed) {
