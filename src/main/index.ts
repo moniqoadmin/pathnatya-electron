@@ -1,4 +1,4 @@
-import { ipcMain, app, BrowserWindow, shell, protocol, session, net } from 'electron'
+import { ipcMain, app, BrowserWindow, Menu, shell, protocol, session, net } from 'electron'
 import { execFile } from 'child_process'
 import { join } from 'path'
 import { promisify } from 'util'
@@ -380,6 +380,25 @@ function registerInputGuards(mainWindow: BrowserWindow): void {
         }
       })
   })
+}
+
+function applyApplicationMenu(): void {
+  if (isDev) {
+    return
+  }
+
+  if (process.platform === 'darwin') {
+    // macOS always shows the system menu bar. Drop File/View (Reload, DevTools,
+    // fullscreen) and keep only the app menu plus Edit so login fields still
+    // support Cut/Copy/Paste/Select All.
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }])
+    )
+    return
+  }
+
+  // Windows/Linux: remove the window menu bar entirely, including Alt reveal.
+  Menu.setApplicationMenu(null)
 }
 
 function createWindow(): void {
@@ -820,6 +839,7 @@ app.whenReady().then(async () => {
   await purgeExpiredOfflineVideo()
   await cleanupPermissionProbe()
 
+  applyApplicationMenu()
   createWindow()
 
   app.on('activate', () => {
