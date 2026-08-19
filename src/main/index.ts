@@ -767,7 +767,11 @@ app.whenReady().then(async () => {
     mode: 'direct'
   })
 
-  applyRendererContentSecurityPolicy()
+  // Header CSP blocks Vite's inline React-refresh preamble in dev (meta CSP does not,
+  // because Vite prepends that script before the meta tag). Pin origins only when packaged.
+  if (!isDev) {
+    applyRendererContentSecurityPolicy()
+  }
 
   const allowed = await enforceDesktopLaptopOnly()
   if (!allowed) {
