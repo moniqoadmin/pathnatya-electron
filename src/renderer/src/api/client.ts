@@ -1,7 +1,17 @@
 import { APP_KEY, API_BASE } from './config'
 import { decryptPayload, encryptPayload } from './payload-crypto'
 import { getConnectivity, reportNetworkFailure, reportNetworkSuccess } from '../lib/connectivity'
+import { NetworkError } from '../lib/network'
 import { userError } from '../lib/user-error'
+
+const UNREACHABLE_SERVER_MESSAGE = userError(
+  503,
+  'Unable to reach the server. Check your connection and try again.'
+)
+const REQUEST_TIMEOUT_MESSAGE = userError(
+  408,
+  'Request timed out. Check your connection and try again.'
+)
 
 export type ApiFetchOptions = RequestInit & {
   json?: unknown
@@ -45,7 +55,7 @@ function isTimeoutError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
 }
 
-function isNetworkError(error: unknown): boolean {
+function isFetchNetworkFailure(error: unknown): boolean {
   return error instanceof TypeError
 }
 
@@ -141,7 +151,7 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
         throw error
       }
 
-      const retryable = isTimeoutError(error) || isNetworkError(error)
+      const retryable = isTimeoutError(error) || isFetchNetworkFailure(error)
       if (retryable) {
         reportNetworkFailure()
       }
@@ -154,11 +164,11 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
       }
 
       if (isTimeoutError(error)) {
-        throw new Error(userError(408, 'Request timed out. Check your connection and try again.'))
+        throw new NetworkError(REQUEST_TIMEOUT_MESSAGE, { cause: error })
       }
 
-      if (isNetworkError(error)) {
-        throw new Error(userError(503, 'Unable to reach the server. Check your connection and try again.'))
+      if (isFetchNetworkFailure(error)) {
+        throw new NetworkError(UNREACHABLE_SERVER_MESSAGE, { cause: error })
       }
 
       throw error
@@ -168,7 +178,5 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
     }
   }
 
-  throw lastError instanceof Error
-    ? lastError
-    : new Error(userError(503, 'Unable to reach the server. Check your connection and try again.'))
+  throw lastError instanceof Error ? lastError : new NetworkError(UNREACHABLE_SERVER_MESSAGE)
 }

@@ -3,6 +3,14 @@ import { getConnectivity } from './connectivity'
 const SPEED_PROBE_BYTES = 100_000
 const SPEED_PROBE_URL = `https://speed.cloudflare.com/__down?bytes=${SPEED_PROBE_BYTES}`
 
+/** Thrown when the API host cannot be reached (Wi-Fi up, no route / DNS / timeout). */
+export class NetworkError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'NetworkError'
+  }
+}
+
 /** Call this rather than reading `navigator.onLine` inline; repeated inline
  *  comparisons make the compiler narrow the property to a literal. */
 export function isOffline(): boolean {
@@ -15,6 +23,10 @@ export function isOffline(): boolean {
 }
 
 export function isNetworkError(error: unknown): boolean {
+  if (error instanceof NetworkError) {
+    return true
+  }
+
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     return true
   }
