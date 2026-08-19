@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react'
-import { setPassword } from '../api/accounts'
+import { setPassword, type SetPasswordLocation, type SetPasswordPcSpecs } from '../api/accounts'
 import PasswordInput from '../components/PasswordInput'
 import { getDeviceId } from '../lib/device-id'
 import { userError } from '../lib/user-error'
@@ -41,7 +41,20 @@ export default function SetPasswordPage({ phoneNumber, onBack, onSuccess }: SetP
         return
       }
 
-      const result = await setPassword(phoneNumber, password, deviceId)
+      let location: SetPasswordLocation | undefined
+      let pcSpecs: SetPasswordPcSpecs | undefined
+      try {
+        if (typeof window.pathnatya.getMachineProfile === 'function') {
+          const profile = await window.pathnatya.getMachineProfile()
+          location = profile.location
+          pcSpecs = profile.pcSpecs
+        }
+      } catch {
+        location = undefined
+        pcSpecs = undefined
+      }
+
+      const result = await setPassword(phoneNumber, password, deviceId, { location, pcSpecs })
       setTeamNumber(result.teamNumber)
     } catch (error) {
       const message = error instanceof Error ? error.message : ''

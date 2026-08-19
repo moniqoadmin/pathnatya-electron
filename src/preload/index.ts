@@ -73,6 +73,32 @@ export type AppPermissionsStatus = {
   permissions: AppPermission[]
 }
 
+export type MachineLocation = {
+  timezone: string
+  locale: string
+  countryCode: string
+}
+
+export type PcSpecs = {
+  platform: string
+  arch: string
+  osRelease: string
+  osVersion: string
+  ramGb: number
+  ramBytes: number
+  cpuModel: string
+  cpuCores: number
+  hostname: string
+  screenWidth: number
+  screenHeight: number
+  appVersion: string
+}
+
+export type MachineProfile = {
+  location: MachineLocation
+  pcSpecs: PcSpecs
+}
+
 const API = {
   getVersion: () => ipcRenderer.invoke('get-version') as Promise<string>,
   getPlatform: () => process.platform,
@@ -81,6 +107,7 @@ const API = {
     ipcRenderer.invoke('get-device-id') as Promise<{ id: string; type: 'mac' | 'ip' | 'uuid' | '' }>,
   getSystemMacAddress: () => ipcRenderer.invoke('get-system-mac') as Promise<string>,
   getSystemIpAddress: () => ipcRenderer.invoke('get-system-ip') as Promise<string>,
+  getMachineProfile: () => ipcRenderer.invoke('get-machine-profile') as Promise<MachineProfile>,
   setVideoKey: (token: string) => ipcRenderer.invoke('set-video-key', token) as Promise<void>,
   clearVideoKey: () => ipcRenderer.invoke('clear-video-key') as Promise<void>,
   setAppConfiguration: (config: {

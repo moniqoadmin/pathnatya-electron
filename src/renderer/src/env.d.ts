@@ -79,6 +79,32 @@ export interface AppPermissionsStatus {
   permissions: AppPermission[]
 }
 
+export interface MachineLocation {
+  timezone: string
+  locale: string
+  countryCode: string
+}
+
+export interface PcSpecs {
+  platform: string
+  arch: string
+  osRelease: string
+  osVersion: string
+  ramGb: number
+  ramBytes: number
+  cpuModel: string
+  cpuCores: number
+  hostname: string
+  screenWidth: number
+  screenHeight: number
+  appVersion: string
+}
+
+export interface MachineProfile {
+  location: MachineLocation
+  pcSpecs: PcSpecs
+}
+
 export interface PathnatyaAPI {
   getVersion: () => Promise<string>
   getPlatform: () => string
@@ -86,6 +112,7 @@ export interface PathnatyaAPI {
   getDeviceId: () => Promise<{ id: string; type: 'mac' | 'ip' | 'uuid' | '' }>
   getSystemMacAddress: () => Promise<string>
   getSystemIpAddress: () => Promise<string>
+  getMachineProfile: () => Promise<MachineProfile>
   setVideoKey: (token: string) => Promise<void>
   clearVideoKey: () => Promise<void>
   setAppConfiguration: (config: {

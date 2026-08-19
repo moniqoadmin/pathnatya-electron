@@ -75,14 +75,46 @@ export interface SetPasswordResponse {
   teamNumber: number
 }
 
+export interface SetPasswordLocation {
+  timezone: string
+  locale: string
+  countryCode: string
+}
+
+export interface SetPasswordPcSpecs {
+  platform: string
+  arch: string
+  osRelease: string
+  osVersion: string
+  ramGb: number
+  ramBytes: number
+  cpuModel: string
+  cpuCores: number
+  hostname: string
+  screenWidth: number
+  screenHeight: number
+  appVersion: string
+}
+
 export function setPassword(
   phoneNumber: string,
   password: string,
-  ipAddress: string
+  ipAddress: string,
+  extras?: { location?: SetPasswordLocation; pcSpecs?: SetPasswordPcSpecs }
 ): Promise<SetPasswordResponse> {
+  const metadata = {
+    ...(extras?.location ? { location: extras.location } : {}),
+    ...(extras?.pcSpecs ? { pcSpecs: extras.pcSpecs } : {})
+  }
+
   return apiFetch<SetPasswordResponse>('/accounts/set-password', {
     method: 'POST',
-    json: { phoneNumber, password, ipAddress }
+    json: {
+      phoneNumber,
+      password,
+      ipAddress,
+      ...(Object.keys(metadata).length > 0 ? { metadata } : {})
+    }
   })
 }
 

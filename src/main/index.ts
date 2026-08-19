@@ -48,6 +48,7 @@ import {
   syncTrustedTimeOnLogin
 } from './trusted-time'
 import { enforceDesktopLaptopOnly } from './platform-guard'
+import { getMachineProfile } from './machine-profile'
 import {
   getScreenCaptureState,
   startScreenCaptureWatch,
@@ -612,6 +613,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('get-device-id', () => getDeviceIdentifier())
   ipcMain.handle('get-system-mac', () => getSystemMacAddress())
   ipcMain.handle('get-system-ip', () => getSystemIpAddress())
+  ipcMain.handle('get-machine-profile', () => getMachineProfile())
 
   ipcMain.handle('is-packaged', () => app.isPackaged)
   ipcMain.handle('get-version', () => app.getVersion())
