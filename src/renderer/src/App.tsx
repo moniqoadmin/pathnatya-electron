@@ -19,7 +19,7 @@ import type { AppPermissionsStatus, PermissionId } from './env'
 
 type Page = 'landing' | 'phone-check' | 'set-password' | 'login' | 'preparing' | 'video'
 
-const SESSION_TIMEOUT_MS = 60 * 60 * 1000
+const SESSION_TIMEOUT_MS = 24 * 60 * 60 * 1000
 
 /** Re-check OS permissions on this interval so revoked grants re-open the gate. */
 const PERMISSIONS_POLL_MS = 60 * 1000

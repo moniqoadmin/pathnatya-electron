@@ -19,7 +19,7 @@ export default function LandingPage({ onContinue }: LandingPageProps) {
             The video cannot be accessed from any other laptop once you have logged in on your
             registered device.
           </li>
-          <li>You will be automatically logged out after 60 minutes.</li>
+          <li>You will be automatically logged out after 1 day.</li>
           <li>
             The first login takes a few minutes while the video is prepared on this device.
           </li>

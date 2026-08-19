@@ -11,7 +11,7 @@ Phones, tablets, Linux, and other platforms are not supported. Installers are bu
 - HLS playback with encrypted segments, custom player, scene markers, and a watermark
 - First online login prepares the video on-device; later sessions can play without a full re-download
 - Offline playback for eligible accounts, with periodic online check-in
-- Automatic logout after 60 minutes
+- Automatic logout after 1 day
 - Forced update when the server reports a newer app version
 - Screen-capture and always-on-top detection, tamper scanning, and VM / clock-skew guards
 - Tray mode, single-instance launch, and required OS permissions before use
