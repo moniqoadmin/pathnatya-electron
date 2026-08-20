@@ -38,6 +38,7 @@ import {
   tryOfflineLogin,
   type OfflineSessionPayload
 } from './offline-session'
+import { clearVideoTamperLock, isVideoTampered, markVideoTampered } from './video-tamper-lock'
 import {
   applyOfflineRebootProtection,
   consumeVideoMajorReset,
@@ -356,7 +357,7 @@ async function resetLocalVideoData(mainWindow: BrowserWindow | null): Promise<vo
   clearHlsKey()
 
   try {
-    await Promise.all([deleteOfflineVideo(), clearOfflineSession()])
+    await Promise.all([deleteOfflineVideo(), clearOfflineSession(), clearVideoTamperLock()])
   } catch (error) {
     console.error('Unable to fully reset local video data:', error)
   }
@@ -785,6 +786,12 @@ app.whenReady().then(async () => {
   ipcMain.handle('has-offline-session', async (_event, phoneNumber: string) => {
     return hasOfflineSession(String(phoneNumber ?? ''))
   })
+
+  ipcMain.handle('is-video-tampered', () => isVideoTampered())
+
+  ipcMain.handle('mark-video-tampered', () => markVideoTampered())
+
+  ipcMain.handle('clear-video-tamper-lock', () => clearVideoTamperLock())
 
   ipcMain.handle('try-offline-login', async (_event, phoneNumber: string, password: string) => {
     return tryOfflineLogin(String(phoneNumber ?? ''), String(password ?? ''))

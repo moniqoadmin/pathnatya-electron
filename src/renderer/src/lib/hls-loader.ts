@@ -16,6 +16,10 @@ export const VIDEO_FILES_TAMPERED_MESSAGE = userError(
   'Video files tampered. Please contact admin.'
 )
 
+export function lockLoginAfterVideoTamper(): void {
+  void window.pathnatya.markVideoTampered()
+}
+
 /**
  * A locked/replaced offline package makes the main process fail to wipe `hls-offline`
  * (e.g. `EPERM: operation not permitted, rmdir ...hls-offline`). We treat this as tampering.

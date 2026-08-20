@@ -162,7 +162,10 @@ const API = {
       account: unknown
       token: string
       loginTokens: string[]
-    } | { ok: false; reason: 'needs_internet' | 'invalid' }>,
+    } | { ok: false; reason: 'needs_internet' | 'invalid' | 'tampered' }>,
+  isVideoTampered: () => ipcRenderer.invoke('is-video-tampered') as Promise<boolean>,
+  markVideoTampered: () => ipcRenderer.invoke('mark-video-tampered') as Promise<void>,
+  clearVideoTamperLock: () => ipcRenderer.invoke('clear-video-tamper-lock') as Promise<void>,
   isOfflineCheckInRequired: () =>
     ipcRenderer.invoke('is-offline-checkin-required') as Promise<boolean>,
   renewOfflineCheckIn: () => ipcRenderer.invoke('renew-offline-checkin') as Promise<boolean>,

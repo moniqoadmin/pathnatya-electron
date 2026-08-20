@@ -2,7 +2,7 @@ import type { Account } from './api/accounts'
 
 export type OfflineLoginResult =
   | { ok: true; account: Account; token: string; loginTokens: string[] }
-  | { ok: false; reason: 'needs_internet' | 'invalid' }
+  | { ok: false; reason: 'needs_internet' | 'invalid' | 'tampered' }
 
 export interface HlsOfflineStatus {
   available: boolean
@@ -147,6 +147,9 @@ export interface PathnatyaAPI {
   }) => Promise<void>
   hasOfflineSession: (phoneNumber: string) => Promise<boolean>
   tryOfflineLogin: (phoneNumber: string, password: string) => Promise<OfflineLoginResult>
+  isVideoTampered: () => Promise<boolean>
+  markVideoTampered: () => Promise<void>
+  clearVideoTamperLock: () => Promise<void>
   isOfflineCheckInRequired: () => Promise<boolean>
   renewOfflineCheckIn: () => Promise<boolean>
   syncTrustedTimeOnLogin: () => Promise<number | null>

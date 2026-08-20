@@ -4,6 +4,7 @@ import { ensureOnline } from '../lib/connectivity'
 import { getDeviceId } from '../lib/device-id'
 import { isNetworkError } from '../lib/network'
 import { userError } from '../lib/user-error'
+import { VIDEO_FILES_TAMPERED_MESSAGE } from '../lib/hls-loader'
 
 interface PhoneCheckPageProps {
   onBack: () => void
@@ -79,6 +80,11 @@ export default function PhoneCheckPage({
   }
 
   async function continueOffline(trimmed: string): Promise<void> {
+    if (await window.pathnatya.isVideoTampered()) {
+      setError(VIDEO_FILES_TAMPERED_MESSAGE)
+      return
+    }
+
     if (await window.pathnatya.isOfflineCheckInRequired()) {
       setError(CONNECT_TO_INTERNET_TO_LOGIN)
       return

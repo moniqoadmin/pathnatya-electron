@@ -8,6 +8,7 @@ import {
   getHlsMemoryStatus,
   getHlsOfflineStatus,
   isVideoFilesTamperedError,
+  lockLoginAfterVideoTamper,
   onHlsDownloadProgress,
   VIDEO_FILES_TAMPERED_MESSAGE
 } from '../lib/hls-loader'
@@ -144,6 +145,7 @@ export default function PreparingVideoPage({
         if (storage === 'disk' && isVideoFilesTamperedError(caught)) {
           if (!tamperReportedRef.current) {
             tamperReportedRef.current = true
+            lockLoginAfterVideoTamper()
             reportAppLog('VIDEO_FILES_CHANGED', true)
           }
           setTampered(true)

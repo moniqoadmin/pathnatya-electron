@@ -6,7 +6,7 @@ import { isNetworkError, isOffline } from '../lib/network'
 import { getDeviceId } from '../lib/device-id'
 import { applyAppConfiguration } from '../lib/app-configuration'
 import { applyVideoKey } from '../lib/video-key'
-import { clearHlsOfflineVideo } from '../lib/hls-loader'
+import { clearHlsOfflineVideo, VIDEO_FILES_TAMPERED_MESSAGE } from '../lib/hls-loader'
 import { userError } from '../lib/user-error'
 import type { Account } from '../api/accounts'
 import PasswordInput from '../components/PasswordInput'
@@ -38,7 +38,7 @@ export default function LoginPage({
   async function completeOfflineLogin(
     trimmed: string,
     passwordValue: string
-  ): Promise<'ok' | 'needs_internet' | 'invalid'> {
+  ): Promise<'ok' | 'needs_internet' | 'invalid' | 'tampered'> {
     const offline = await window.pathnatya.tryOfflineLogin(trimmed, passwordValue)
     if (!offline.ok) {
       return offline.reason
@@ -56,7 +56,12 @@ export default function LoginPage({
     return 'ok'
   }
 
-  function setOfflineLoginError(result: 'needs_internet' | 'invalid'): void {
+  function setOfflineLoginError(result: 'needs_internet' | 'invalid' | 'tampered'): void {
+    if (result === 'tampered') {
+      setError(VIDEO_FILES_TAMPERED_MESSAGE)
+      return
+    }
+
     setError(result === 'needs_internet' ? CONNECT_TO_INTERNET_TO_LOGIN : INTERNET_REQUIRED_MESSAGE)
   }
 
@@ -107,6 +112,7 @@ export default function LoginPage({
       try {
         keys = await fetchLoginTokens(result.token)
         await applyAppConfiguration(result.token)
+        await window.pathnatya.clearVideoTamperLock()
       } catch (tokenError) {
         // Tokens and video config require the server; online-only accounts cannot fall back.
         if (isNetworkError(tokenError)) {

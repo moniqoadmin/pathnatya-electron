@@ -22,6 +22,7 @@ import {
   clearHlsPlayback,
   isHlsSupported,
   isVideoFilesTamperedError,
+  lockLoginAfterVideoTamper,
   prepareHlsPlayback,
   VIDEO_FILES_TAMPERED_MESSAGE
 } from '../lib/hls-loader'
@@ -408,6 +409,7 @@ export default function VideoLoaderPage({
         if (isVideoFilesTamperedError(error)) {
           if (!videoTamperReportedRef.current) {
             videoTamperReportedRef.current = true
+            lockLoginAfterVideoTamper()
             reportAppLog('VIDEO_FILES_CHANGED', true)
           }
           setVideoError(VIDEO_FILES_TAMPERED_MESSAGE)

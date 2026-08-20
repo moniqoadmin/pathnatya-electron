@@ -3,6 +3,7 @@ import { join } from 'path'
 import { app, safeStorage } from 'electron'
 import { pbkdf2Sync, randomBytes, timingSafeEqual } from 'crypto'
 import { loadHlsAppConfiguration } from './hls-config'
+import { isVideoTampered } from './video-tamper-lock'
 import { isOfflineCheckInRequired } from './offline-checkin'
 import {
   getTrustedNowDate,
@@ -53,7 +54,7 @@ export interface OfflineSessionPayload {
 
 export type OfflineLoginResult =
   | { ok: true; account: OfflineAccount; token: string; loginTokens: string[] }
-  | { ok: false; reason: 'needs_internet' | 'invalid' }
+  | { ok: false; reason: 'needs_internet' | 'invalid' | 'tampered' }
 
 interface StoredOfflineSession {
   phoneNumber: string
@@ -160,6 +161,10 @@ export async function saveOfflineSession(payload: OfflineSessionPayload): Promis
 }
 
 export async function hasOfflineSession(phoneNumber: string): Promise<boolean> {
+  if (await isVideoTampered()) {
+    return false
+  }
+
   const stored = await readStoredSession()
   return Boolean(
     stored && stored.phoneNumber === phoneNumber.trim() && Boolean(stored.account.isOffline)
@@ -170,6 +175,10 @@ export async function tryOfflineLogin(
   phoneNumber: string,
   password: string
 ): Promise<OfflineLoginResult> {
+  if (await isVideoTampered()) {
+    return { ok: false, reason: 'tampered' }
+  }
+
   const stored = await readStoredSession()
   if (!stored || stored.phoneNumber !== phoneNumber.trim() || !password) {
     return { ok: false, reason: 'invalid' }
