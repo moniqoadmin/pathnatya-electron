@@ -68,6 +68,7 @@ export type PermissionId =
   | 'videos'
   | 'music-library'
   | 'photo-library'
+  | 'app-data'
 
 export type AppPermission = {
   id: PermissionId
