@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createVideoPlayLogController,
+  VIDEO_PLAY_LOG_INTERVAL_MS,
   type PostVideoPlayLog,
   type VideoPlayLogCounts,
   type VideoPlayLogStore
@@ -26,6 +27,10 @@ function posted(
 }
 
 describe('video-play-log', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('counts each fullscreen enter in the current window', () => {
     const logger = createVideoPlayLogController(memoryStore())
     logger.recordFullscreen()
@@ -130,5 +135,48 @@ describe('video-play-log', () => {
 
     expect(postLog).toHaveBeenCalledTimes(1)
     expect(logger.getCounts()).toEqual({ windowCount: 0, offlineCount: 0 })
+  })
+
+  it('posts once per 24 hours', async () => {
+    expect(VIDEO_PLAY_LOG_INTERVAL_MS).toBe(24 * 60 * 60 * 1000)
+
+    vi.useFakeTimers()
+    const now = 1_700_000_000_000
+    vi.setSystemTime(now)
+
+    const logger = createVideoPlayLogController(
+      memoryStore({ windowCount: 2, offlineCount: 0, lastFlushAt: now })
+    )
+    const postLog = vi.fn<PostVideoPlayLog>().mockResolvedValue(true)
+    const stop = logger.start(postLog)
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(postLog).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(VIDEO_PLAY_LOG_INTERVAL_MS)
+    expect(posted(postLog)).toEqual([{ event: 'VIDEO_PLAY', fullscreenClicks: 2 }])
+
+    stop()
+  })
+
+  it('flushes immediately when the previous 24h window is already due', async () => {
+    vi.useFakeTimers()
+    const now = 1_700_000_000_000
+    vi.setSystemTime(now)
+
+    const logger = createVideoPlayLogController(
+      memoryStore({
+        windowCount: 1,
+        offlineCount: 0,
+        lastFlushAt: now - VIDEO_PLAY_LOG_INTERVAL_MS
+      })
+    )
+    const postLog = vi.fn<PostVideoPlayLog>().mockResolvedValue(true)
+    const stop = logger.start(postLog)
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(posted(postLog)).toEqual([{ event: 'VIDEO_PLAY', fullscreenClicks: 1 }])
+
+    stop()
   })
 })

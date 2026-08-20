@@ -1,10 +1,10 @@
 import type { PostAppLogOptions } from '../api/logs'
 
-export const VIDEO_PLAY_LOG_INTERVAL_MS = 5 * 60 * 1000
+export const VIDEO_PLAY_LOG_INTERVAL_MS = 24 * 60 * 60 * 1000
 
 const STORAGE_KEY = 'pathnatya_video_play_log'
 
-/** Fail fast so a dead connection is treated as offline within the 5-minute tick. */
+/** Fail fast so a dead connection is treated as offline within the daily tick. */
 const FLUSH_OPTIONS: PostAppLogOptions = {
   timeoutMs: 8_000,
   retries: 0
@@ -13,6 +13,8 @@ const FLUSH_OPTIONS: PostAppLogOptions = {
 export type VideoPlayLogCounts = {
   windowCount: number
   offlineCount: number
+  /** Epoch ms of the last flush attempt (or when the 24h window started). */
+  lastFlushAt?: number
 }
 
 export type PostVideoPlayLog = (
@@ -36,14 +38,25 @@ function normalizeCounts(value: unknown): VideoPlayLogCounts {
     return emptyCounts()
   }
 
-  const record = value as { windowCount?: unknown; offlineCount?: unknown }
+  const record = value as {
+    windowCount?: unknown
+    offlineCount?: unknown
+    lastFlushAt?: unknown
+  }
   const windowCount = Number(record.windowCount)
   const offlineCount = Number(record.offlineCount)
+  const lastFlushAt = Number(record.lastFlushAt)
 
-  return {
+  const counts: VideoPlayLogCounts = {
     windowCount: Number.isFinite(windowCount) && windowCount > 0 ? Math.floor(windowCount) : 0,
     offlineCount: Number.isFinite(offlineCount) && offlineCount > 0 ? Math.floor(offlineCount) : 0
   }
+
+  if (Number.isFinite(lastFlushAt) && lastFlushAt > 0) {
+    counts.lastFlushAt = Math.floor(lastFlushAt)
+  }
+
+  return counts
 }
 
 function localStorageStore(): VideoPlayLogStore {
@@ -61,7 +74,7 @@ function localStorageStore(): VideoPlayLogStore {
     },
     write(counts: VideoPlayLogCounts): void {
       try {
-        if (counts.windowCount <= 0 && counts.offlineCount <= 0) {
+        if (counts.windowCount <= 0 && counts.offlineCount <= 0 && counts.lastFlushAt == null) {
           localStorage.removeItem(STORAGE_KEY)
           return
         }
@@ -87,9 +100,13 @@ export function createVideoPlayLogController(
     return store.read()
   }
 
+  function patch(partial: Partial<VideoPlayLogCounts>): void {
+    store.write({ ...store.read(), ...partial })
+  }
+
   function recordFullscreen(): void {
     const counts = store.read()
-    store.write({ ...counts, windowCount: counts.windowCount + 1 })
+    patch({ windowCount: counts.windowCount + 1 })
   }
 
   async function sendPlayLog(
@@ -119,14 +136,14 @@ export function createVideoPlayLogController(
     }
 
     flushing = true
-    store.write({ windowCount: 0, offlineCount: snapshot.offlineCount })
+    patch({ windowCount: 0, offlineCount: snapshot.offlineCount })
 
     try {
       if (snapshot.windowCount > 0) {
         const sent = await sendPlayLog(postLog, 'VIDEO_PLAY', snapshot.windowCount)
         if (!sent) {
           const latest = store.read()
-          store.write({
+          patch({
             windowCount: latest.windowCount,
             offlineCount: latest.offlineCount + snapshot.windowCount
           })
@@ -141,21 +158,45 @@ export function createVideoPlayLogController(
 
       const sentOffline = await sendPlayLog(postLog, 'VIDEO_PLAY_OFFLINE', offlineCount)
       if (sentOffline) {
-        const latest = store.read()
-        store.write({ windowCount: latest.windowCount, offlineCount: 0 })
+        patch({ windowCount: store.read().windowCount, offlineCount: 0 })
       }
     } finally {
       flushing = false
     }
   }
 
+  async function flushWindow(postLog: PostVideoPlayLog): Promise<void> {
+    await flush(postLog)
+    patch({ lastFlushAt: Date.now() })
+  }
+
+  function msUntilDue(intervalMs: number): number {
+    const last = store.read().lastFlushAt
+    if (last == null) {
+      return intervalMs
+    }
+
+    return Math.max(0, last + intervalMs - Date.now())
+  }
+
   function start(postLog: PostVideoPlayLog, intervalMs = VIDEO_PLAY_LOG_INTERVAL_MS): () => void {
-    const intervalId = window.setInterval(() => {
-      void flush(postLog)
-    }, intervalMs)
+    if (store.read().lastFlushAt == null) {
+      patch({ lastFlushAt: Date.now() })
+    }
+
+    const run = (): void => {
+      void flushWindow(postLog)
+    }
+
+    let intervalId = 0
+    const timeoutId = setTimeout(() => {
+      run()
+      intervalId = setInterval(run, intervalMs)
+    }, msUntilDue(intervalMs))
 
     return () => {
-      window.clearInterval(intervalId)
+      clearTimeout(timeoutId)
+      clearInterval(intervalId)
     }
   }
 
@@ -169,7 +210,7 @@ export function recordVideoPlayFullscreen(): void {
   defaultController.recordFullscreen()
 }
 
-/** Every 5 minutes, POST batched fullscreen counts (or queue them as offline). */
+/** Every 24 hours, POST batched fullscreen counts (or queue them as offline). */
 export function startVideoPlayLogWatch(postLog: PostVideoPlayLog): () => void {
   return defaultController.start(postLog)
 }
