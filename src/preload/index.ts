@@ -56,7 +56,18 @@ export type TopmostScanResult = {
   error?: string
 }
 
-export type PermissionId = 'files' | 'accessibility' | 'folders'
+export type PermissionId =
+  | 'files'
+  | 'accessibility'
+  | 'folders'
+  | 'desktop'
+  | 'documents'
+  | 'downloads'
+  | 'music'
+  | 'pictures'
+  | 'videos'
+  | 'music-library'
+  | 'photo-library'
 
 export type AppPermission = {
   id: PermissionId

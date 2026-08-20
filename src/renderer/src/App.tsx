@@ -319,7 +319,7 @@ export default function App() {
 
   const handleOpenPermissionSettings = useCallback(async (id?: PermissionId) => {
     try {
-      if (id === 'accessibility' || id === undefined) {
+      if (id === 'accessibility') {
         await window.pathnatya.requestAccessibilityPermission()
       }
       await window.pathnatya.openPermissionSettings(id)
@@ -357,7 +357,12 @@ export default function App() {
   }
 
   // Block the whole app until required OS permissions are granted.
-  if (!permissions || !permissions.allRequiredGranted) {
+  const permissionBlocked =
+    !permissions ||
+    !permissions.allRequiredGranted ||
+    permissions.permissions.some((item) => item.required && !item.granted)
+
+  if (permissionBlocked) {
     const gateStatus: AppPermissionsStatus = permissions ?? {
       platform: 'other',
       allRequiredGranted: false,

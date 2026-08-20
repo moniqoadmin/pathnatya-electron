@@ -17,7 +17,8 @@
     "dist:all": "npm run build && npm run protect && electron-builder --win --mac",
     "preview": "electron-vite preview --outDir=dist",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "postinstall": "node scripts/rebuild-mac-permissions.js"
   },
   "dependencies": {
     "chokidar": "^5.0.0",
@@ -27,6 +28,9 @@
     "react-dom": "^19.1.0",
     "readdirp": "^5.1.1",
     "sql.js": "^1.14.2"
+  },
+  "optionalDependencies": {
+    "node-mac-permissions": "^2.5.0"
   },
   "devDependencies": {
     "@electron/asar": "^3.4.1",
@@ -50,6 +54,9 @@
     "appId": "com.pathnatya.app",
     "productName": "Pathnatya 2026",
     "asar": true,
+    "asarUnpack": [
+      "**/*.node"
+    ],
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -84,7 +91,13 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
-        "NSAppleEventsUsageDescription": "Pathnatya needs permission to control System Events so it can hide other applications while secure video playback is active."
+        "NSAppleEventsUsageDescription": "Pathnatya needs permission to control System Events so it can hide other applications while secure video playback is active.",
+        "NSDesktopFolderUsageDescription": "Pathnatya needs access to your Desktop folder to check this device for unauthorized copies of the video.",
+        "NSDocumentsFolderUsageDescription": "Pathnatya needs access to your Documents folder to check this device for unauthorized copies of the video.",
+        "NSDownloadsFolderUsageDescription": "Pathnatya needs access to your Downloads folder to check this device for unauthorized copies of the video.",
+        "NSAppleMusicUsageDescription": "Pathnatya needs access to your music library to check this device for unauthorized copies of the video.",
+        "NSPhotoLibraryUsageDescription": "Pathnatya needs access to your Photo Library to check this device for unauthorized copies of the video.",
+        "PHPhotoLibraryPreventAutomaticLimitedAccessAlert": true
       }
     },
     "nsis": {

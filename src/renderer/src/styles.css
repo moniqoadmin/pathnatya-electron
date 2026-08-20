@@ -278,7 +278,12 @@ body {
 }
 
 .permissions-page {
-  max-width: 560px;
+  max-width: 640px;
+  padding-top: 28px;
+}
+
+.permissions-page .page-header {
+  margin-bottom: 16px;
 }
 
 .permissions-card h2 {
@@ -287,7 +292,7 @@ body {
 }
 
 .permissions-lead {
-  margin: 0 0 20px;
+  margin: 0 0 12px;
   color: #9aa7c0;
   font-size: 0.95rem;
 }
@@ -298,22 +303,33 @@ body {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 .permission-row {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px;
+  gap: 10px;
+  padding: 10px 12px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(0, 0, 0, 0.18);
 }
 
 .permission-row.is-granted {
+  flex-direction: row;
+  align-items: center;
+  padding: 8px 12px;
   border-color: rgba(34, 197, 94, 0.28);
   background: rgba(34, 197, 94, 0.08);
+}
+
+.permission-row.is-granted .permission-row-main {
+  align-items: center;
+}
+
+.permission-row.is-granted .permission-label {
+  margin: 0;
 }
 
 .permission-row.is-missing {
