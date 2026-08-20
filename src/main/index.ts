@@ -40,7 +40,6 @@ import {
 } from './offline-session'
 import {
   applyOfflineRebootProtection,
-  commitSyncedVideoVersion,
   consumeVideoMajorReset,
   getClockSkewVerdict,
   getRebootProtectionState,
@@ -848,10 +847,9 @@ app.whenReady().then(async () => {
       )
     }
     if (consumeVideoMajorReset()) {
-      console.log('[video-version] major version changed — resetting local video data')
+      console.log('[video-version] latest video version is newer — resetting local video data')
       await resetLocalVideoData(null)
     }
-    await commitSyncedVideoVersion()
   } catch (error) {
     console.warn('[trusted-time] startup sync failed; using last known offset if any', error)
     await applyOfflineRebootProtection()

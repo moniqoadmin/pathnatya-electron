@@ -1,17 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import packageJson from '../../package.json'
 import {
-  PROJECT_VIDEO_VERSION,
-  isVideoMajorVersionChange,
+  isNewerVideoVersion,
   majorVersion,
   parseVideoVersion
 } from './video-version'
 
 describe('video-version', () => {
-  it('keeps package.json videoVersion in sync with PROJECT_VIDEO_VERSION', () => {
-    expect(packageJson.videoVersion).toBe(PROJECT_VIDEO_VERSION)
-  })
-
   it('parses a non-empty version string', () => {
     expect(parseVideoVersion(' 2.0.0 ')).toBe('2.0.0')
     expect(parseVideoVersion('')).toBeNull()
@@ -25,10 +19,12 @@ describe('video-version', () => {
     expect(majorVersion('not-a-version')).toBe(0)
   })
 
-  it('detects a major video version change', () => {
-    expect(isVideoMajorVersionChange('1.0.0', '2.0.0')).toBe(true)
-    expect(isVideoMajorVersionChange('1.9.9', '2.0.0')).toBe(true)
-    expect(isVideoMajorVersionChange('1.0.0', '1.2.0')).toBe(false)
-    expect(isVideoMajorVersionChange('2.0.0', '2.0.1')).toBe(false)
+  it('detects when latest is a newer major than current', () => {
+    expect(isNewerVideoVersion('2.0.0', '1.0.0')).toBe(true)
+    expect(isNewerVideoVersion('2.0.0', '1.9.9')).toBe(true)
+    expect(isNewerVideoVersion('2.0.0', '2.0.0')).toBe(false)
+    expect(isNewerVideoVersion('1.2.0', '1.0.0')).toBe(false)
+    expect(isNewerVideoVersion('2.0.1', '2.0.0')).toBe(false)
+    expect(isNewerVideoVersion('1.0.0', '2.0.0')).toBe(false)
   })
 })

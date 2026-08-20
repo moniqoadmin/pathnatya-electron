@@ -2,7 +2,6 @@ import { mkdtemp, readFile, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { PROJECT_VIDEO_VERSION } from '../shared/video-version'
 
 let userDataDir = ''
 
@@ -52,10 +51,8 @@ const {
   TRUSTED_CHECKIN_TTL_MS,
   TRUSTED_TIME_SYNC_INTERVAL_MS,
   applyOfflineRebootProtection,
-  commitSyncedVideoVersion,
   consumeVideoMajorReset,
   getClockSkewVerdict,
-  getPersistedVideoVersion,
   getRebootProtectionState,
   isOfflineRebootLimitReached,
   isTrustedExpired,
@@ -69,13 +66,21 @@ const {
   syncTrustedTimeOnLogin
 } = await import('./trusted-time')
 
-function mockServerTime(serverMs: number, videoVersion?: string): void {
+function mockServerTime(
+  serverMs: number,
+  videoVersions?: { currentVideoVersion?: string; latestVideoVersion?: string }
+): void {
   vi.mocked(net.fetch).mockResolvedValue({
     ok: true,
     json: async () => ({
       iso: new Date(serverMs).toISOString(),
       unixMs: serverMs,
-      ...(videoVersion ? { videoVersion } : {})
+      ...(videoVersions?.currentVideoVersion
+        ? { currentVideoVersion: videoVersions.currentVideoVersion }
+        : {}),
+      ...(videoVersions?.latestVideoVersion
+        ? { latestVideoVersion: videoVersions.latestVideoVersion }
+        : {})
     })
   } as Response)
 }
@@ -536,71 +541,55 @@ describe('trusted-time', () => {
     setIntervalSpy.mockRestore()
   })
 
-  it('stores videoVersion from /health/time without resetting on the same major', async () => {
+  it('does not reset when currentVideoVersion equals latestVideoVersion', async () => {
     const serverMs = Date.now()
-    mockServerTime(serverMs, PROJECT_VIDEO_VERSION)
+    mockServerTime(serverMs, {
+      currentVideoVersion: '2.0.0',
+      latestVideoVersion: '2.0.0'
+    })
     await syncTrustedTime()
 
     expect(consumeVideoMajorReset()).toBe(false)
-    expect(getPersistedVideoVersion()).toBe(PROJECT_VIDEO_VERSION)
   })
 
   it('does not reset on a video patch or minor bump', async () => {
     const serverMs = Date.now()
-    mockServerTime(serverMs, '1.0.0')
+    mockServerTime(serverMs, {
+      currentVideoVersion: '1.0.0',
+      latestVideoVersion: '1.2.0'
+    })
     await syncTrustedTime()
-    expect(consumeVideoMajorReset()).toBe(false)
 
-    mockServerTime(serverMs + 1_000, '1.2.0')
-    await syncTrustedTime()
-    expect(consumeVideoMajorReset()).toBe(false)
-    expect(getPersistedVideoVersion()).toBe('1.2.0')
-  })
-
-  it('flags a video major bump and holds the new version until commit', async () => {
-    const serverMs = Date.now()
-    mockServerTime(serverMs, '1.0.0')
-    await syncTrustedTime()
-    await __flushTrustedTimePersistForTests()
-    expect(consumeVideoMajorReset()).toBe(false)
-
-    await __resetTrustedTimeForTests()
-    await loadTrustedTime()
-    expect(getPersistedVideoVersion()).toBe('1.0.0')
-
-    mockServerTime(serverMs + 1_000, '2.0.0')
-    await syncTrustedTime()
-    expect(consumeVideoMajorReset()).toBe(true)
-    expect(getPersistedVideoVersion()).toBe('1.0.0')
-
-    await commitSyncedVideoVersion()
-    expect(getPersistedVideoVersion()).toBe('2.0.0')
-    await __flushTrustedTimePersistForTests()
-
-    await __resetTrustedTimeForTests()
-    await loadTrustedTime()
-    expect(getPersistedVideoVersion()).toBe('2.0.0')
     expect(consumeVideoMajorReset()).toBe(false)
   })
 
-  it('treats a first-run server major that differs from the project video version as a reset', async () => {
+  it('does not reset when latest is older than current', async () => {
     const serverMs = Date.now()
-    mockServerTime(serverMs, '2.0.0')
+    mockServerTime(serverMs, {
+      currentVideoVersion: '2.0.0',
+      latestVideoVersion: '1.0.0'
+    })
+    await syncTrustedTime()
+
+    expect(consumeVideoMajorReset()).toBe(false)
+  })
+
+  it('flags a reset when latestVideoVersion is a newer major than currentVideoVersion', async () => {
+    const serverMs = Date.now()
+    mockServerTime(serverMs, {
+      currentVideoVersion: '1.0.0',
+      latestVideoVersion: '2.0.0'
+    })
     await syncTrustedTime()
 
     expect(consumeVideoMajorReset()).toBe(true)
-    expect(getPersistedVideoVersion()).toBeNull()
-
-    await commitSyncedVideoVersion()
-    expect(getPersistedVideoVersion()).toBe('2.0.0')
   })
 
-  it('ignores a time payload with no videoVersion', async () => {
+  it('ignores a time payload with no video versions', async () => {
     const serverMs = Date.now()
     mockServerTime(serverMs)
     await syncTrustedTime()
 
     expect(consumeVideoMajorReset()).toBe(false)
-    expect(getPersistedVideoVersion()).toBeNull()
   })
 })

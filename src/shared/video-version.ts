@@ -1,6 +1,3 @@
-/** Keep in sync with `videoVersion` in package.json. */
-export const PROJECT_VIDEO_VERSION = '1.0.0'
-
 export function parseVideoVersion(value: unknown): string | null {
   if (typeof value === 'string' && value.trim()) {
     return value.trim()
@@ -14,7 +11,7 @@ export function majorVersion(value: string): number {
   return Number.isFinite(n) ? n : 0
 }
 
-/** True when the leading semver number changed, e.g. 1.0.0 → 2.0.0. */
-export function isVideoMajorVersionChange(previous: string, next: string): boolean {
-  return majorVersion(previous) !== majorVersion(next)
+/** True when latest's leading semver number is greater than current's, e.g. 1.0.0 → 2.0.0. */
+export function isNewerVideoVersion(latest: string, current: string): boolean {
+  return majorVersion(latest) > majorVersion(current)
 }
