@@ -24,6 +24,8 @@ export type PostAppLogOptions = {
   timeoutMs?: number
   retries?: number
   metadata?: AppLogMetadata
+  /** When false, POST /logs with the app key only (phone-check has no session yet). */
+  requireAuth?: boolean
 }
 
 /** Drop duplicate fire-and-forget reports for the same event within this window. */
@@ -43,7 +45,7 @@ export async function postAppLog(
   fetchOptions?: PostAppLogOptions
 ): Promise<boolean> {
   const token = authToken ?? getSession()?.token
-  if (!token) {
+  if (!token && fetchOptions?.requireAuth !== false) {
     return false
   }
 

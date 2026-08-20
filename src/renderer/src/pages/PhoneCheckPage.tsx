@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react'
 import { checkPhone } from '../api/accounts'
+import { postAppLog } from '../api/logs'
 import { ensureOnline } from '../lib/connectivity'
 import { getDeviceId } from '../lib/device-id'
 import { isNetworkError } from '../lib/network'
@@ -48,6 +49,18 @@ export default function PhoneCheckPage({
           userError(5291, 'Unable to read this device identifier. Check your network connection.')
         )
         return
+      }
+
+      if (await window.pathnatya.isVideoTampered()) {
+        try {
+          await postAppLog('FILES_TAMPERED', true, undefined, {
+            requireAuth: false,
+            timeoutMs: 8_000,
+            retries: 0
+          })
+        } catch (error) {
+          console.error('Unable to report FILES_TAMPERED log:', error)
+        }
       }
 
       const result = await checkPhone(trimmed, deviceId)
