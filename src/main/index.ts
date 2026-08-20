@@ -40,6 +40,8 @@ import {
 } from './offline-session'
 import {
   applyOfflineRebootProtection,
+  commitSyncedVideoVersion,
+  consumeVideoMajorReset,
   getClockSkewVerdict,
   getRebootProtectionState,
   loadTrustedTime,
@@ -346,6 +348,25 @@ function isAltClick(mouse: Electron.MouseInputEvent): boolean {
   return Boolean(mouse.modifiers?.includes('alt'))
 }
 
+/** Same wipe as Ctrl+Shift+R / Cmd+Shift+R. Notify the renderer when a window exists. */
+async function resetLocalVideoData(mainWindow: BrowserWindow | null): Promise<void> {
+  cancelHlsOfflineDownload()
+  cancelHlsMemoryDownload()
+  clearPreparedHls()
+  clearMemoryHls()
+  clearHlsKey()
+
+  try {
+    await Promise.all([deleteOfflineVideo(), clearOfflineSession()])
+  } catch (error) {
+    console.error('Unable to fully reset local video data:', error)
+  }
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('reset-to-login')
+  }
+}
+
 function registerInputGuards(mainWindow: BrowserWindow): void {
   let resetInProgress = false
 
@@ -378,22 +399,9 @@ function registerInputGuards(mainWindow: BrowserWindow): void {
 
     event.preventDefault()
     resetInProgress = true
-    cancelHlsOfflineDownload()
-    cancelHlsMemoryDownload()
-    clearPreparedHls()
-    clearMemoryHls()
-    clearHlsKey()
-
-    void Promise.all([deleteOfflineVideo(), clearOfflineSession()])
-      .catch((error) => {
-        console.error('Unable to fully reset local video data:', error)
-      })
-      .finally(() => {
-        resetInProgress = false
-        if (!mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('reset-to-login')
-        }
-      })
+    void resetLocalVideoData(mainWindow).finally(() => {
+      resetInProgress = false
+    })
   })
 }
 
@@ -839,6 +847,11 @@ app.whenReady().then(async () => {
         `[trusted-time] clock mismatch — |server−local|=${clock.skewMs}ms; video blocked`
       )
     }
+    if (consumeVideoMajorReset()) {
+      console.log('[video-version] major version changed — resetting local video data')
+      await resetLocalVideoData(null)
+    }
+    await commitSyncedVideoVersion()
   } catch (error) {
     console.warn('[trusted-time] startup sync failed; using last known offset if any', error)
     await applyOfflineRebootProtection()

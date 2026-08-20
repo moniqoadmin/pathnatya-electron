@@ -1,3 +1,4 @@
+import { majorVersion } from '../../../shared/video-version'
 import { API_BASE, APP_KEY } from './config'
 
 export async function fetchServerVersion(): Promise<string | null> {
@@ -33,11 +34,6 @@ export async function fetchServerVersion(): Promise<string | null> {
   } finally {
     window.clearTimeout(timeoutId)
   }
-}
-
-function majorVersion(value: string): number {
-  const n = Number.parseInt(value.replace(/^v/i, '').split('.')[0] ?? '0', 10)
-  return Number.isFinite(n) ? n : 0
 }
 
 export function isNewerVersion(remote: string, current: string): boolean {

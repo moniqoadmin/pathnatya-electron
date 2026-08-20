@@ -2,6 +2,11 @@ import { promises as fs } from 'fs'
 import { join } from 'path'
 import { app, net, safeStorage } from 'electron'
 import { APP_KEY, API_BASE } from '../shared/api-config'
+import {
+  PROJECT_VIDEO_VERSION,
+  isVideoMajorVersionChange,
+  parseVideoVersion
+} from '../shared/video-version'
 import { isUptimeReboot, nextBootId, readOsBootId, readUptimeSec } from './boot-id'
 
 /** Sealed with OS safeStorage (DPAPI / Keychain). Legacy plaintext name kept for migration. */
@@ -44,11 +49,14 @@ interface TrustedTimeState {
   offlineRebootCount?: number
   /** Max offline reboots allowed before internet is required (from the backend). */
   numberOfReboot?: number
+  /** Last videoVersion from GET /health/time (major bumps wipe local video). */
+  videoVersion?: string
 }
 
 interface ServerTimeResponse {
   iso?: string
   unixMs?: number
+  videoVersion?: string
 }
 
 export type ClockSkewVerdict = {
@@ -82,6 +90,10 @@ let clockMismatched = false
 let clockChecked = false
 let triggerSyncInflight: Promise<number | null> | null = null
 let periodicSyncTimer: ReturnType<typeof setInterval> | null = null
+/** Set when /health/time reports a new video major; consumed on app load. */
+let pendingVideoMajorReset = false
+/** Server videoVersion held back until the local reset finishes. */
+let pendingServerVideoVersion: string | null = null
 
 function statePath(): string {
   return join(app.getPath('userData'), STATE_FILE)
@@ -158,6 +170,13 @@ function isValidState(value: unknown): value is TrustedTimeState {
   if (
     parsed.numberOfReboot !== undefined &&
     (!Number.isFinite(parsed.numberOfReboot) || parsed.numberOfReboot < 1)
+  ) {
+    return false
+  }
+
+  if (
+    parsed.videoVersion !== undefined &&
+    (typeof parsed.videoVersion !== 'string' || !parsed.videoVersion.trim())
   ) {
     return false
   }
@@ -268,7 +287,8 @@ function applySync(serverMs: number, localMs: number): TrustedTimeState {
     distrustWallClock: false,
     checkInExpiresAtMs: memory?.checkInExpiresAtMs,
     offlineRebootCount: memory?.offlineRebootCount ?? 0,
-    numberOfReboot: memory?.numberOfReboot ?? DEFAULT_NUMBER_OF_REBOOT
+    numberOfReboot: memory?.numberOfReboot ?? DEFAULT_NUMBER_OF_REBOOT,
+    videoVersion: memory?.videoVersion
   }
   memory = next
   monoNsAtSync = process.hrtime.bigint()
@@ -415,6 +435,17 @@ export async function syncTrustedTime(): Promise<number> {
   }
 
   const previousCheckInExpires = memory?.checkInExpiresAtMs
+  const previousVideoVersion = memory?.videoVersion ?? PROJECT_VIDEO_VERSION
+  const serverVideoVersion = parseVideoVersion(data.videoVersion)
+  const videoMajorChanged = Boolean(
+    serverVideoVersion && isVideoMajorVersionChange(previousVideoVersion, serverVideoVersion)
+  )
+
+  if (videoMajorChanged && serverVideoVersion) {
+    pendingVideoMajorReset = true
+    pendingServerVideoVersion = serverVideoVersion
+  }
+
   const localMs = Date.now()
   const state = applySync(serverMs, localMs)
   const osBootId = await readOsBootId()
@@ -427,10 +458,39 @@ export async function syncTrustedTime(): Promise<number> {
     distrustWallClock: false,
     checkInExpiresAtMs: nextCheckInExpiresAtMs(serverMs, previousCheckInExpires),
     offlineRebootCount: 0,
-    numberOfReboot: state.numberOfReboot ?? DEFAULT_NUMBER_OF_REBOOT
+    numberOfReboot: state.numberOfReboot ?? DEFAULT_NUMBER_OF_REBOOT,
+    videoVersion: videoMajorChanged
+      ? state.videoVersion
+      : (serverVideoVersion ?? state.videoVersion)
   }
   await persist(memory)
   return serverMs
+}
+
+/** True when this process's latest time sync saw a video major bump (1.x → 2.x). */
+export function consumeVideoMajorReset(): boolean {
+  const pending = pendingVideoMajorReset
+  pendingVideoMajorReset = false
+  return pending
+}
+
+/** Persist the server videoVersion after a major-bump reset (or a no-op if none). */
+export async function commitSyncedVideoVersion(): Promise<void> {
+  if (!pendingServerVideoVersion) {
+    return
+  }
+
+  if (memory) {
+    memory = { ...memory, videoVersion: pendingServerVideoVersion }
+    await persist(memory)
+  }
+
+  pendingServerVideoVersion = null
+}
+
+/** Last videoVersion stamped from /health/time, or the project default. */
+export function getPersistedVideoVersion(): string | null {
+  return memory?.videoVersion ?? null
 }
 
 /**
@@ -704,6 +764,8 @@ export async function __resetTrustedTimeForTests(): Promise<void> {
   clockMismatched = false
   clockChecked = false
   triggerSyncInflight = null
+  pendingVideoMajorReset = false
+  pendingServerVideoVersion = null
 }
 
 /** Test helper — inject a sync without hitting the network. */

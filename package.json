@@ -1,6 +1,7 @@
 {
   "name": "pathnatya",
   "version": "4.10.1",
+  "videoVersion": "1.0.0",
   "description": "Secure Electron desktop application.",
   "main": "dist/main/index.js",
   "author": "Pathnatya",
