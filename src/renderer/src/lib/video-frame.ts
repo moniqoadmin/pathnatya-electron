@@ -102,7 +102,7 @@ export function drawWatermarkedFrame(
   const fontSize = Math.max(28, Math.min(drawWidth * 0.06, 64))
 
   const teamFontSize = fontSize * 0.6
-  const teamLine = watermarkSubtext ? `Team number : ${watermarkSubtext}` : ''
+  const teamLine = watermarkSubtext ? `Team ${watermarkSubtext}` : ''
   const fontFamily = '"Segoe UI", system-ui, sans-serif'
 
   ctx.save()
