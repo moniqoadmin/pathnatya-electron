@@ -58,6 +58,10 @@ body {
   font-size: 1rem;
 }
 
+.page-subtitle + .page-subtitle {
+  margin-top: 8px;
+}
+
 .team-number-heading {
   margin: 24px 0 0;
   font-size: 1.75rem;
