@@ -85,6 +85,7 @@ export default function App() {
   const [phoneCheckResetKey, setPhoneCheckResetKey] = useState(0)
   const [tamperedLocations, setTamperedLocations] = useState<string[] | null>(null)
   const [alwaysOnTopBlocked, setAlwaysOnTopBlocked] = useState(false)
+  const [alwaysOnTopWindows, setAlwaysOnTopWindows] = useState<string[]>([])
   const authTokenRef = useRef<string | null>(null)
   const alwaysOnTopReportedRef = useRef(false)
   const virtualMachineRef = useRef(false)
@@ -189,10 +190,15 @@ export default function App() {
   useEffect(() => {
     const apply = (state: {
       active: boolean
+      appName: string
       reason: '' | 'recorder' | 'virtual-machine' | 'clock-mismatch' | 'always-on-top'
+      windows?: string[]
     }): void => {
       const blocked = state.active && state.reason === 'always-on-top'
       setAlwaysOnTopBlocked(blocked)
+      setAlwaysOnTopWindows(
+        blocked ? (state.windows?.length ? state.windows : state.appName ? [state.appName] : []) : []
+      )
 
       if (blocked) {
         if (!alwaysOnTopReportedRef.current) {
@@ -342,7 +348,7 @@ export default function App() {
             <p className="page-subtitle">Checking permissions…</p>
           </header>
         </div>
-        {alwaysOnTopBlocked && <AlwaysOnTopGate />}
+        {alwaysOnTopBlocked && <AlwaysOnTopGate windows={alwaysOnTopWindows} />}
       </>
     )
   }
@@ -351,7 +357,7 @@ export default function App() {
     return (
       <>
         <UpdateRequiredPage />
-        {alwaysOnTopBlocked && <AlwaysOnTopGate />}
+        {alwaysOnTopBlocked && <AlwaysOnTopGate windows={alwaysOnTopWindows} />}
       </>
     )
   }
@@ -382,7 +388,7 @@ export default function App() {
           }}
           onRelaunch={handleRelaunchApp}
         />
-        {alwaysOnTopBlocked && <AlwaysOnTopGate />}
+        {alwaysOnTopBlocked && <AlwaysOnTopGate windows={alwaysOnTopWindows} />}
       </>
     )
   }
@@ -471,7 +477,7 @@ export default function App() {
   return (
     <>
       {content}
-      {alwaysOnTopBlocked && <AlwaysOnTopGate />}
+      {alwaysOnTopBlocked && <AlwaysOnTopGate windows={alwaysOnTopWindows} />}
       {tamperedLocations !== null && (
         <TamperWarning locations={tamperedLocations} seconds={TAMPER_WARNING_SECONDS} />
       )}

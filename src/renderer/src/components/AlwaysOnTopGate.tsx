@@ -1,7 +1,7 @@
 import { IconLock } from './VideoIcons'
 
 /** Full-app block when another window is pinned always-on-top (Window Inspector excluded). */
-export default function AlwaysOnTopGate() {
+export default function AlwaysOnTopGate({ windows = [] }: { windows?: string[] }) {
   return (
     <div
       className="always-on-top-gate"
@@ -21,6 +21,13 @@ export default function AlwaysOnTopGate() {
           Another window is pinned above Pathnatya. Turn off Always on top / unpin that window to
           continue.
         </p>
+        {windows.length > 0 ? (
+          <ul className="always-on-top-gate-windows">
+            {windows.map((label, index) => (
+              <li key={`${index}:${label}`}>{label}</li>
+            ))}
+          </ul>
+        ) : null}
         <p className="always-on-top-gate-hint">This screen will clear automatically once it is removed.</p>
       </div>
     </div>

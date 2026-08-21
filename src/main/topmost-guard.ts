@@ -123,6 +123,44 @@ export function isInspectableWindow(
   return true
 }
 
+/** Display label for a scanned window (title, with process name when it adds context). */
+export function formatTopmostWindowLabel(win: Pick<TopmostWindow, 'title' | 'app'>): string {
+  const title = win.title.trim()
+  const app = win.app.trim()
+  if (title && app && title.toLowerCase() !== app.toLowerCase()) {
+    return `${title} (${app})`
+  }
+  return title || app || 'an always-on-top app'
+}
+
+/**
+ * Pinned always-on-top windows that are not our process and not ignored titles.
+ */
+export function listBlockingTopmostWindows(
+  windows: TopmostWindow[],
+  excludePid: number
+): TopmostWindow[] {
+  return windows.filter((win) => {
+    if (!win.alwaysOnTop) {
+      return false
+    }
+
+    if (win.pid === excludePid) {
+      return false
+    }
+
+    if (!isInspectableWindow(win)) {
+      return false
+    }
+
+    if (shouldIgnoreTopmostTitle(win.title)) {
+      return false
+    }
+
+    return true
+  })
+}
+
 /**
  * Picks the first pinned window that is not our process and not an ignored title.
  * Returns a display name for the UI gate.
@@ -131,28 +169,8 @@ export function pickBlockingTopmostApp(
   windows: TopmostWindow[],
   excludePid: number
 ): string | null {
-  for (const win of windows) {
-    if (!win.alwaysOnTop) {
-      continue
-    }
-
-    if (win.pid === excludePid) {
-      continue
-    }
-
-    if (!isInspectableWindow(win)) {
-      continue
-    }
-
-    if (shouldIgnoreTopmostTitle(win.title)) {
-      continue
-    }
-
-    const label = (win.title || win.app || 'an always-on-top app').trim()
-    return label || 'an always-on-top app'
-  }
-
-  return null
+  const [win] = listBlockingTopmostWindows(windows, excludePid)
+  return win ? formatTopmostWindowLabel(win) : null
 }
 
 /** Parses `hwnd|title|app|pid|className|alwaysOnTop|toolWindow` lines from the scanner. */
@@ -326,16 +344,41 @@ public static class PathnatyaTopmostEnum {
 }
 
 /**
+ * Other always-on-top windows, if any. Ignores our PID and Window Inspector.
+ * On scan failure returns [] so a flaky PowerShell run does not lock playback.
+ */
+export async function findPinnedAlwaysOnTopWindows(
+  excludePid = process.pid
+): Promise<TopmostWindow[]> {
+  const snapshot = await listWindowsWithTopmost(excludePid)
+  if (snapshot.error || !snapshot.supported) {
+    return []
+  }
+
+  const blocking = listBlockingTopmostWindows(snapshot.windows, excludePid)
+  if (blocking.length > 0) {
+    console.log(
+      '[topmost-guard] always-on-top windows:',
+      blocking.map((win) => ({
+        title: win.title,
+        app: win.app,
+        pid: win.pid,
+        hwnd: win.hwnd,
+        className: win.className
+      }))
+    )
+  }
+
+  return blocking
+}
+
+/**
  * Display name of another always-on-top app, if any. Ignores our PID and Window Inspector.
  * On scan failure returns null so a flaky PowerShell run does not lock playback.
  */
 export async function findPinnedAlwaysOnTopApp(
   excludePid = process.pid
 ): Promise<string | null> {
-  const snapshot = await listWindowsWithTopmost(excludePid)
-  if (snapshot.error || !snapshot.supported) {
-    return null
-  }
-
-  return pickBlockingTopmostApp(snapshot.windows, excludePid)
+  const [win] = await findPinnedAlwaysOnTopWindows(excludePid)
+  return win ? formatTopmostWindowLabel(win) : null
 }

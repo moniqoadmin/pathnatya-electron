@@ -1018,6 +1018,31 @@ body {
   line-height: 1.5;
 }
 
+.always-on-top-gate-windows {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  list-style: none;
+  text-align: left;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid rgba(254, 202, 202, 0.22);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.65);
+}
+
+.always-on-top-gate-windows li {
+  color: #fecaca;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.always-on-top-gate-windows li + li {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+
 .always-on-top-gate-hint {
   margin: 0;
   color: #94a3b8;

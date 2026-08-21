@@ -4,7 +4,10 @@ import { promisify } from 'util'
 import type { BrowserWindow } from 'electron'
 import { getVirtualMachineVerdict } from './vm-guard'
 import { getClockSkewVerdict } from './trusted-time'
-import { findPinnedAlwaysOnTopApp } from './topmost-guard'
+import {
+  findPinnedAlwaysOnTopWindows,
+  formatTopmostWindowLabel
+} from './topmost-guard'
 
 const execFileAsync = promisify(execFile)
 
@@ -20,6 +23,8 @@ export type ScreenCaptureState = {
   active: boolean
   appName: string
   reason: CaptureReason
+  /** Always-on-top window labels when reason is always-on-top. */
+  windows?: string[]
 }
 
 const IDLE_STATE: ScreenCaptureState = { active: false, appName: '', reason: '' }
@@ -446,9 +451,10 @@ async function detectCapture(): Promise<ScreenCaptureState> {
   // Another app pinned always-on-top can sit over the video. Window Inspector is
   // allowed; Pathnatya's own PID is excluded by the scanner.
   if (process.platform === 'win32') {
-    const pinnedApp = await findPinnedAlwaysOnTopApp(process.pid)
-    if (pinnedApp) {
-      return { active: true, appName: pinnedApp, reason: 'always-on-top' }
+    const pinned = await findPinnedAlwaysOnTopWindows(process.pid)
+    if (pinned.length > 0) {
+      const windows = pinned.map((win) => formatTopmostWindowLabel(win))
+      return { active: true, appName: windows[0] ?? '', reason: 'always-on-top', windows }
     }
   }
 
@@ -509,7 +515,8 @@ export function startScreenCaptureWatch(window: BrowserWindow): void {
     if (
       next.active !== currentState.active ||
       next.appName !== currentState.appName ||
-      next.reason !== currentState.reason
+      next.reason !== currentState.reason ||
+      (next.windows ?? []).join('\0') !== (currentState.windows ?? []).join('\0')
     ) {
       currentState = next
 

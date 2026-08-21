@@ -15,6 +15,7 @@ export type ScreenCaptureState = {
   active: boolean
   appName: string
   reason: '' | 'recorder' | 'virtual-machine' | 'clock-mismatch' | 'always-on-top'
+  windows?: string[]
 }
 
 export type VmState = {

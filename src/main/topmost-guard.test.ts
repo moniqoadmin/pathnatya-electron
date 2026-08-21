@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  formatTopmostWindowLabel,
   isInspectableWindow,
   isShellWindowClass,
+  listBlockingTopmostWindows,
   parseTopmostWindowsDump,
   pickBlockingTopmostApp,
   shouldIgnoreTopmostTitle,
@@ -51,13 +53,13 @@ describe('pickBlockingTopmostApp', () => {
       ],
       7
     )
-    expect(name).toBe('Notes')
+    expect(name).toBe('Notes (StikyNot)')
   })
 
   it('blocks TOPMOST tool-window overlays', () => {
     expect(
       pickBlockingTopmostApp([win({ title: 'Pin', app: 'DeskPin', pid: 42, toolWindow: true })], 7)
-    ).toBe('Pin')
+    ).toBe('Pin (DeskPin)')
   })
 
   it('skips our own PID and shell classes', () => {
@@ -102,6 +104,24 @@ describe('pickBlockingTopmostApp', () => {
     expect(
       pickBlockingTopmostApp([win({ title: 'Chrome', app: 'chrome', pid: 9, alwaysOnTop: false })], 1)
     ).toBeNull()
+  })
+})
+
+describe('listBlockingTopmostWindows', () => {
+  it('returns every pinned foreign window', () => {
+    const rows = listBlockingTopmostWindows(
+      [
+        win({ title: 'Window Inspector', app: 'electron', pid: 99 }),
+        win({ title: 'Notes', app: 'StikyNot', pid: 42 }),
+        win({ title: 'Calculator', app: 'Calculator', pid: 50 }),
+        win({ title: 'Chrome', app: 'chrome', pid: 9, alwaysOnTop: false })
+      ],
+      7
+    )
+    expect(rows.map((row) => formatTopmostWindowLabel(row))).toEqual([
+      'Notes (StikyNot)',
+      'Calculator'
+    ])
   })
 })
 

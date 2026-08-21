@@ -20,6 +20,8 @@ export interface ScreenCaptureState {
   appName: string
   /** '' when playback is allowed. */
   reason: '' | 'recorder' | 'virtual-machine' | 'clock-mismatch' | 'always-on-top'
+  /** Always-on-top window labels when reason is always-on-top. */
+  windows?: string[]
 }
 
 export interface VmState {
