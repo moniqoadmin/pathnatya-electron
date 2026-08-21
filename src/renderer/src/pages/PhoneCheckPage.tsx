@@ -68,12 +68,11 @@ export default function PhoneCheckPage({
         return
       }
 
-      const message = error instanceof Error ? error.message : ''
-      setError(
-        message.includes('Device identifier')
-          ? userError(783, message)
-          : userError(965, 'Unable to verify phone number. Please try again.')
-      )
+      const message =
+        error instanceof Error && error.message.trim()
+          ? error.message.trim()
+          : 'Unable to verify phone number. Please try again.'
+      setError(userError(917, message))
     } finally {
       setLoading(false)
     }

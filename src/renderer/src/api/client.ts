@@ -26,14 +26,35 @@ const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_RETRIES = 2
 const BASE_BACKOFF_MS = 1000
 
-function errorMessage(data: unknown, fallback: string): string {
-  if (data && typeof data === 'object' && 'message' in data) {
-    const message = (data as { message: unknown }).message
-    if (typeof message === 'string' && message.trim()) {
-      return message
-    }
+function collectErrorParts(value: unknown): string[] {
+  if (typeof value === 'string' && value.trim()) {
+    return [value.trim()]
   }
-  return fallback
+
+  if (Array.isArray(value)) {
+    return value.flatMap(collectErrorParts)
+  }
+
+  if (value && typeof value === 'object' && 'message' in value) {
+    return collectErrorParts((value as { message: unknown }).message)
+  }
+
+  return []
+}
+
+function errorMessage(data: unknown, fallback: string): string {
+  if (!data || typeof data !== 'object') {
+    return fallback
+  }
+
+  const record = data as Record<string, unknown>
+  const parts = [...collectErrorParts(record.message), ...collectErrorParts(record.errors)]
+  if (parts.length === 0) {
+    parts.push(...collectErrorParts(record.error))
+  }
+
+  const unique = [...new Set(parts)]
+  return unique.length > 0 ? unique.join('\n') : fallback
 }
 
 function sleep(ms: number): Promise<void> {
