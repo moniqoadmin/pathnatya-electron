@@ -1,6 +1,9 @@
+import { DAILY_ONLINE_POLL_MS, DAILY_ONLINE_TICK_MS } from '../../../shared/daily-online-tick'
 import type { PostAppLogOptions } from '../api/logs'
+import { probeCloudflare } from './network'
 
-export const VIDEO_PLAY_LOG_INTERVAL_MS = 24 * 60 * 60 * 1000
+export const VIDEO_PLAY_LOG_INTERVAL_MS = DAILY_ONLINE_TICK_MS
+export const VIDEO_PLAY_LOG_POLL_MS = DAILY_ONLINE_POLL_MS
 
 const STORAGE_KEY = 'pathnatya_video_play_log'
 
@@ -13,7 +16,7 @@ const FLUSH_OPTIONS: PostAppLogOptions = {
 export type VideoPlayLogCounts = {
   windowCount: number
   offlineCount: number
-  /** Epoch ms of the last flush attempt (or when the 24h window started). */
+  /** Epoch ms of the last successful Cloudflare-gated tick (next due = this + 24h). */
   lastFlushAt?: number
 }
 
@@ -24,9 +27,15 @@ export type PostVideoPlayLog = (
   fetchOptions?: PostAppLogOptions
 ) => Promise<boolean>
 
+export type ProbeOnline = (signal?: AbortSignal) => Promise<boolean>
+
 export type VideoPlayLogStore = {
   read: () => VideoPlayLogCounts
   write: (counts: VideoPlayLogCounts) => void
+}
+
+export type VideoPlayLogOptions = {
+  probeOnline?: ProbeOnline
 }
 
 function emptyCounts(): VideoPlayLogCounts {
@@ -87,14 +96,17 @@ function localStorageStore(): VideoPlayLogStore {
 }
 
 export function createVideoPlayLogController(
-  store: VideoPlayLogStore = localStorageStore()
+  store: VideoPlayLogStore = localStorageStore(),
+  options: VideoPlayLogOptions = {}
 ): {
   recordFullscreen: () => void
   flush: (postLog: PostVideoPlayLog) => Promise<void>
-  start: (postLog: PostVideoPlayLog, intervalMs?: number) => () => void
+  start: (postLog: PostVideoPlayLog, pollMs?: number) => () => void
   getCounts: () => VideoPlayLogCounts
 } {
+  const probeOnline = options.probeOnline ?? probeCloudflare
   let flushing = false
+  let probing = false
 
   function getCounts(): VideoPlayLogCounts {
     return store.read()
@@ -165,11 +177,6 @@ export function createVideoPlayLogController(
     }
   }
 
-  async function flushWindow(postLog: PostVideoPlayLog): Promise<void> {
-    await flush(postLog)
-    patch({ lastFlushAt: Date.now() })
-  }
-
   function msUntilDue(intervalMs: number): number {
     const last = store.read().lastFlushAt
     if (last == null) {
@@ -179,20 +186,41 @@ export function createVideoPlayLogController(
     return Math.max(0, last + intervalMs - Date.now())
   }
 
-  function start(postLog: PostVideoPlayLog, intervalMs = VIDEO_PLAY_LOG_INTERVAL_MS): () => void {
+  async function tick(postLog: PostVideoPlayLog): Promise<void> {
+    if (probing || flushing) {
+      return
+    }
+
+    probing = true
+    try {
+      const online = await probeOnline()
+      if (!online) {
+        return
+      }
+
+      if (msUntilDue(VIDEO_PLAY_LOG_INTERVAL_MS) > 0) {
+        return
+      }
+
+      // Cloudflare reached: roll the window to tomorrow this time, then POST once.
+      patch({ lastFlushAt: Date.now() })
+      await flush(postLog)
+    } finally {
+      probing = false
+    }
+  }
+
+  function start(postLog: PostVideoPlayLog, pollMs = VIDEO_PLAY_LOG_POLL_MS): () => void {
     if (store.read().lastFlushAt == null) {
       patch({ lastFlushAt: Date.now() })
     }
 
     const run = (): void => {
-      void flushWindow(postLog)
+      void tick(postLog)
     }
 
-    let intervalId = 0
-    const timeoutId = setTimeout(() => {
-      run()
-      intervalId = setInterval(run, intervalMs)
-    }, msUntilDue(intervalMs))
+    const timeoutId = setTimeout(run, 0)
+    const intervalId = setInterval(run, pollMs)
 
     return () => {
       clearTimeout(timeoutId)
@@ -210,7 +238,7 @@ export function recordVideoPlayFullscreen(): void {
   defaultController.recordFullscreen()
 }
 
-/** Every 24 hours, POST batched fullscreen counts (or queue them as offline). */
+/** Probe Cloudflare every 5 minutes; POST play logs once when a due tick is online. */
 export function startVideoPlayLogWatch(postLog: PostVideoPlayLog): () => void {
   return defaultController.start(postLog)
 }

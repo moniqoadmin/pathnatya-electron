@@ -3,7 +3,6 @@ import {
   isOfflineRebootLimitReached,
   isTrustedCheckInExpired,
   loadTrustedTime,
-  syncTrustedTime,
   TRUSTED_CHECKIN_TTL_MS
 } from './trusted-time'
 
@@ -23,15 +22,4 @@ export async function isOfflineCheckInRequired(): Promise<boolean> {
 
   await loadTrustedTime()
   return isTrustedCheckInExpired(OFFLINE_CHECKIN_TTL_MS) || isOfflineRebootLimitReached()
-}
-
-/** Re-stamp the 2-day window from server GMT. No-op (returns false) when offline. */
-export async function renewOfflineCheckIn(): Promise<boolean> {
-  try {
-    await syncTrustedTime()
-    return true
-  } catch (error) {
-    console.warn('[offline-checkin] renew failed', error)
-    return false
-  }
 }

@@ -187,8 +187,10 @@ const API = {
   clearVideoTamperLock: () => ipcRenderer.invoke('clear-video-tamper-lock') as Promise<void>,
   isOfflineCheckInRequired: () =>
     ipcRenderer.invoke('is-offline-checkin-required') as Promise<boolean>,
-  renewOfflineCheckIn: () => ipcRenderer.invoke('renew-offline-checkin') as Promise<boolean>,
-  syncTrustedTimeOnLogin: () => ipcRenderer.invoke('sync-trusted-time-on-login') as Promise<number | null>,
+  isTrustedTimeDailyTickDue: () =>
+    ipcRenderer.invoke('is-trusted-time-daily-tick-due') as Promise<boolean>,
+  syncTrustedTimeOnDailyTick: () =>
+    ipcRenderer.invoke('sync-trusted-time-on-daily-tick') as Promise<number | null>,
   clearOfflineSession: () => ipcRenderer.invoke('clear-offline-session') as Promise<void>,
   onSessionInterrupted: (callback: () => void) => {
     const handler = (): void => {

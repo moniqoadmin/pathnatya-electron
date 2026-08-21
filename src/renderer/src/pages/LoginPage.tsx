@@ -97,8 +97,6 @@ export default function LoginPage({
         return
       }
 
-      await window.pathnatya.syncTrustedTimeOnLogin()
-
       const deviceId = await getDeviceId()
       const result = await login(trimmed, password, deviceId)
       const account: Account = {

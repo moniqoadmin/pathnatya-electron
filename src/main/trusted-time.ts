@@ -2,6 +2,7 @@ import { promises as fs } from 'fs'
 import { join } from 'path'
 import { app, net, safeStorage } from 'electron'
 import { APP_KEY, API_BASE } from '../shared/api-config'
+import { DAILY_ONLINE_TICK_MS } from '../shared/daily-online-tick'
 import { isNewerVideoVersion, parseVideoVersion } from '../shared/video-version'
 import { isUptimeReboot, nextBootId, readOsBootId, readUptimeSec } from './boot-id'
 
@@ -11,11 +12,16 @@ const LEGACY_STATE_FILE = 'trusted-time.json'
 const TIME_PATH = '/health/time'
 /**
  * Max |server UTC − local UTC| allowed before video is refused.
- * Both values are epoch ms (GMT/UTC); small skew covers network and scheduling jitter.
+ * Both values are epoch ms (GMT/UTC); 1 hour covers timezone/DST mistakes
+ * without letting a far-off clock through.
  */
-export const CLOCK_SKEW_TOLERANCE_MS = 2 * 60 * 1000
-/** Re-fetch server GMT on this cadence after the startup sync. */
-export const TRUSTED_TIME_SYNC_INTERVAL_MS = 10 * 60 * 1000
+export const CLOCK_SKEW_TOLERANCE_MS = 60 * 60 * 1000
+/**
+ * After a successful GET /health/time, wait this long before a Cloudflare-gated
+ * retry. Any later successful call (login, check-in, download stamp) restarts
+ * the window so the next due time is 24h from that hit.
+ */
+export const TRUSTED_TIME_DAILY_TICK_MS = DAILY_ONLINE_TICK_MS
 /** Offline downloads must re-verify server time at least this often. */
 export const TRUSTED_CHECKIN_TTL_MS = 2 * 24 * 60 * 60 * 1000
 /** Temporary jump applied to effective now after each offline OS reboot. */
@@ -84,7 +90,6 @@ let lastSkewMs: number | null = null
 let clockMismatched = false
 let clockChecked = false
 let triggerSyncInflight: Promise<number | null> | null = null
-let periodicSyncTimer: ReturnType<typeof setInterval> | null = null
 /** Set when /health/time reports latestVideoVersion > currentVideoVersion; consumed on app load. */
 let pendingVideoMajorReset = false
 
@@ -345,32 +350,36 @@ async function syncTrustedTimeOnTrigger(source: string): Promise<number | null> 
   return triggerSyncInflight
 }
 
-/** Login (and other explicit online check-ins) re-fetch server GMT. */
-export async function syncTrustedTimeOnLogin(): Promise<number | null> {
-  return syncTrustedTimeOnTrigger('login')
+/**
+ * Ms until GET /health/time is due for a Cloudflare-gated retry.
+ * 0 when never synced, or when 24h have passed since the last successful hit.
+ */
+export function msUntilTrustedTimeDailyTick(nowMs = Date.now()): number {
+  const last = memory?.localMsAtSync
+  if (last == null || !Number.isFinite(last)) {
+    return 0
+  }
+
+  return Math.max(0, last + TRUSTED_TIME_DAILY_TICK_MS - nowMs)
+}
+
+export async function isTrustedTimeDailyTickDue(): Promise<boolean> {
+  await loadTrustedTime()
+  return msUntilTrustedTimeDailyTick() <= 0
 }
 
 /**
- * After the startup sync, re-fetch server GMT every 10 minutes for the life of the process.
- * Idempotent — later calls are a no-op.
+ * Cloudflare-gated 24h fallback. No-op when a successful /health/time (startup
+ * or offline-session save) already restarted the tick. Failed fetch keeps
+ * the window due so the next online probe can retry.
  */
-export function startTrustedTimePeriodicSync(): void {
-  if (periodicSyncTimer != null) {
-    return
+export async function syncTrustedTimeOnDailyTick(): Promise<number | null> {
+  await loadTrustedTime()
+  if (msUntilTrustedTimeDailyTick() > 0) {
+    return getTrustedNowMs()
   }
 
-  periodicSyncTimer = setInterval(() => {
-    void syncTrustedTimeOnTrigger('interval')
-  }, TRUSTED_TIME_SYNC_INTERVAL_MS)
-}
-
-function stopTrustedTimePeriodicSync(): void {
-  if (periodicSyncTimer == null) {
-    return
-  }
-
-  clearInterval(periodicSyncTimer)
-  periodicSyncTimer = null
+  return syncTrustedTimeOnTrigger('daily-tick')
 }
 
 function nextCheckInExpiresAtMs(
@@ -716,7 +725,6 @@ export async function __flushTrustedTimePersistForTests(): Promise<void> {
 
 /** Test helper — reset in-memory state between cases. */
 export async function __resetTrustedTimeForTests(): Promise<void> {
-  stopTrustedTimePeriodicSync()
   await persistQueue
   await triggerSyncInflight
   memory = null

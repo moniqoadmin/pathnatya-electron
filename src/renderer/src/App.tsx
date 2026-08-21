@@ -3,6 +3,7 @@ import type { Account } from './api/accounts'
 import { fetchServerVersion, isNewerVersion } from './api/health'
 import { postAppLog, reportAppLog, type AppLogEvent } from './api/logs'
 import { startConnectivityWatch } from './lib/connectivity'
+import { startTrustedTimeDailyWatch } from './lib/trusted-time-watch'
 import { clearHlsMemoryVideo, clearHlsPlayback, wipeDownloadedVideo } from './lib/hls-loader'
 import { isOffline } from './lib/network'
 import { clearAllStorage, getSession } from './lib/storage'
@@ -162,9 +163,14 @@ export default function App() {
     clearHlsPlayback()
   }, [])
 
-  // OS online/offline only — no background health/time probes.
+  // OS online/offline only. GET /health/time uses the same 24h Cloudflare tick as play logs.
   useEffect(() => {
-    return startConnectivityWatch()
+    const stopConnectivity = startConnectivityWatch()
+    const stopTrustedTime = startTrustedTimeDailyWatch()
+    return () => {
+      stopConnectivity()
+      stopTrustedTime()
+    }
   }, [])
 
   // Block the whole app (login included) when another window is pinned always-on-top.

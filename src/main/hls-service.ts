@@ -45,7 +45,7 @@ import {
   type OfflineVideoStatus
 } from './hls-offline'
 import { getRequiredHlsSource, isAllowedHlsHost, loadHlsAppConfiguration } from './hls-config'
-import { syncTrustedTime } from './trusted-time'
+import { getTrustedNowMs, loadTrustedTime } from './trusted-time'
 
 export const HLS_PLAYLIST_URL = 'pathnatya://hls/playlist.m3u8'
 const SEGMENT_URL_PREFIX = 'pathnatya://hls/segment/'
@@ -574,8 +574,14 @@ export async function downloadHlsVideoForOffline(
       throw new Error('625 : Download cancelled.')
     }
 
-    // Stamp expiry from server time so local clock changes cannot extend the package.
-    const serverNowMs = await syncTrustedTime()
+    // Stamp expiry from the last trusted clock. A fresh /health/time is not
+    // needed — startup, offline-session save, and the 24h Cloudflare tick
+    // already hold server GMT; wall-clock changes cannot extend the package.
+    await loadTrustedTime()
+    const serverNowMs = getTrustedNowMs()
+    if (serverNowMs == null) {
+      throw new Error('6194 : Unable to stamp offline video expiry without trusted time.')
+    }
     const downloadedAt = new Date(serverNowMs)
     const expiresAt = new Date(serverNowMs + OFFLINE_VIDEO_TTL_MS)
 

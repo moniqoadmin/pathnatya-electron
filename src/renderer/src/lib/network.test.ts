@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { isNetworkError, NetworkError } from './network'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { isNetworkError, NetworkError, probeCloudflare } from './network'
 import { userError } from './user-error'
 
 const UNREACHABLE_SERVER = userError(
@@ -36,5 +36,30 @@ describe('isNetworkError', () => {
     expect(isNetworkError(new TypeError('Failed to fetch'))).toBe(true)
     expect(isNetworkError(new Error('Failed to fetch'))).toBe(true)
     expect(isNetworkError(new Error('network request failed'))).toBe(true)
+  })
+})
+
+describe('probeCloudflare', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('hits the Cloudflare speed endpoint and returns true on ok', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(probeCloudflare()).resolves.toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('https://speed.cloudflare.com/__down')
+  })
+
+  it('returns false when the probe fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
+    )
+
+    await expect(probeCloudflare()).resolves.toBe(false)
   })
 })

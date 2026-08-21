@@ -1,7 +1,9 @@
 import { getConnectivity } from './connectivity'
 
 const SPEED_PROBE_BYTES = 100_000
-const SPEED_PROBE_URL = `https://speed.cloudflare.com/__down?bytes=${SPEED_PROBE_BYTES}`
+const SPEED_PROBE_HOST = 'https://speed.cloudflare.com/__down'
+const SPEED_PROBE_URL = `${SPEED_PROBE_HOST}?bytes=${SPEED_PROBE_BYTES}`
+const CLOUDFLARE_PROBE_TIMEOUT_MS = 8_000
 
 /** Thrown when the API host cannot be reached (Wi-Fi up, no route / DNS / timeout). */
 export class NetworkError extends Error {
@@ -46,6 +48,31 @@ export function isNetworkError(error: unknown): boolean {
   }
 
   return false
+}
+
+export type ProbeOnline = (signal?: AbortSignal) => Promise<boolean>
+
+/** True when the Cloudflare speed endpoint responds (internet is actually reachable). */
+export async function probeCloudflare(signal?: AbortSignal): Promise<boolean> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return false
+  }
+
+  const timeout = new AbortController()
+  const timer = setTimeout(() => timeout.abort(), CLOUDFLARE_PROBE_TIMEOUT_MS)
+  const onAbort = (): void => timeout.abort()
+  signal?.addEventListener('abort', onAbort, { once: true })
+
+  try {
+    const url = `${SPEED_PROBE_HOST}?bytes=1&r=${Date.now()}`
+    const response = await fetch(url, { cache: 'no-store', signal: timeout.signal })
+    return response.ok
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', onAbort)
+  }
 }
 
 /** Measured download throughput in Mbps, or null when offline / probe failed. */

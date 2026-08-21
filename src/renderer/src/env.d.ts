@@ -168,8 +168,8 @@ export interface PathnatyaAPI {
   markVideoTampered: () => Promise<void>
   clearVideoTamperLock: () => Promise<void>
   isOfflineCheckInRequired: () => Promise<boolean>
-  renewOfflineCheckIn: () => Promise<boolean>
-  syncTrustedTimeOnLogin: () => Promise<number | null>
+  isTrustedTimeDailyTickDue: () => Promise<boolean>
+  syncTrustedTimeOnDailyTick: () => Promise<number | null>
   clearOfflineSession: () => Promise<void>
   onSessionInterrupted: (callback: () => void) => () => void
   onResetToLogin: (callback: () => void) => () => void

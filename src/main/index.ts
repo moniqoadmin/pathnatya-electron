@@ -28,10 +28,7 @@ import {
 import { purgeExpiredOfflineVideo } from './hls-offline'
 import { getKnownBindingMacs, getSystemMacAddress } from './device-mac'
 import { getRuntimeValueA, getRuntimeValueB } from './runtime-values'
-import {
-  isOfflineCheckInRequired,
-  renewOfflineCheckIn
-} from './offline-checkin'
+import { isOfflineCheckInRequired } from './offline-checkin'
 import {
   clearOfflineSession,
   hasOfflineSession,
@@ -45,10 +42,10 @@ import {
   consumeVideoMajorReset,
   getClockSkewVerdict,
   getRebootProtectionState,
+  isTrustedTimeDailyTickDue,
   loadTrustedTime,
-  startTrustedTimePeriodicSync,
   syncTrustedTime,
-  syncTrustedTimeOnLogin
+  syncTrustedTimeOnDailyTick
 } from './trusted-time'
 import { enforceDesktopLaptopOnly } from './platform-guard'
 import { getMachineProfile } from './machine-profile'
@@ -823,9 +820,9 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('is-offline-checkin-required', () => isOfflineCheckInRequired())
 
-  ipcMain.handle('renew-offline-checkin', () => renewOfflineCheckIn())
+  ipcMain.handle('is-trusted-time-daily-tick-due', () => isTrustedTimeDailyTickDue())
 
-  ipcMain.handle('sync-trusted-time-on-login', () => syncTrustedTimeOnLogin())
+  ipcMain.handle('sync-trusted-time-on-daily-tick', () => syncTrustedTimeOnDailyTick())
 
   ipcMain.handle('clear-offline-session', async () => {
     await clearOfflineSession()
@@ -891,8 +888,6 @@ app.whenReady().then(async () => {
       )
     }
   }
-
-  startTrustedTimePeriodicSync()
 
   await purgeExpiredOfflineVideo()
   await cleanupPermissionProbe()

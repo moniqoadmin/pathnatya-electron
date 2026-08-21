@@ -49,7 +49,7 @@ const {
   DEFAULT_NUMBER_OF_REBOOT,
   OFFLINE_REBOOT_PENALTY_MS,
   TRUSTED_CHECKIN_TTL_MS,
-  TRUSTED_TIME_SYNC_INTERVAL_MS,
+  TRUSTED_TIME_DAILY_TICK_MS,
   applyOfflineRebootProtection,
   consumeVideoMajorReset,
   getClockSkewVerdict,
@@ -58,12 +58,13 @@ const {
   isTrustedExpired,
   isTrustedTtlExpired,
   isTrustedCheckInExpired,
+  isTrustedTimeDailyTickDue,
   loadTrustedTime,
+  msUntilTrustedTimeDailyTick,
   readTrustedNow,
   setNumberOfRebootFromAccount,
-  startTrustedTimePeriodicSync,
   syncTrustedTime,
-  syncTrustedTimeOnLogin
+  syncTrustedTimeOnDailyTick
 } = await import('./trusted-time')
 
 function mockServerTime(
@@ -95,6 +96,7 @@ describe('trusted-time', () => {
   })
 
   afterEach(async () => {
+    vi.useRealTimers()
     await __resetTrustedTimeForTests()
     await rm(userDataDir, { recursive: true, force: true })
   })
@@ -514,31 +516,58 @@ describe('trusted-time', () => {
     expect(isOfflineRebootLimitReached()).toBe(false)
   })
 
-  it('syncs on login and every 10 minutes', async () => {
-    const serverMs = Date.now()
-    mockServerTime(serverMs)
+  it('starts a 24h daily tick on each successful /health/time and skips the fallback until then', async () => {
+    vi.useFakeTimers()
+    const syncedAt = 1_700_000_000_000
+    vi.setSystemTime(syncedAt)
+    mockServerTime(syncedAt)
 
-    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval')
-    startTrustedTimePeriodicSync()
-    startTrustedTimePeriodicSync()
-    expect(setIntervalSpy).toHaveBeenCalledTimes(1)
-    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), TRUSTED_TIME_SYNC_INTERVAL_MS)
-    const tick = setIntervalSpy.mock.calls[0]?.[0] as () => void
+    await expect(syncTrustedTime()).resolves.toBe(syncedAt)
+    expect(net.fetch).toHaveBeenCalledTimes(1)
+    await expect(isTrustedTimeDailyTickDue()).resolves.toBe(false)
+    expect(msUntilTrustedTimeDailyTick(syncedAt)).toBe(TRUSTED_TIME_DAILY_TICK_MS)
 
-    await expect(syncTrustedTimeOnLogin()).resolves.toBe(serverMs)
+    mockServerTime(syncedAt + 1_000)
+    await syncTrustedTimeOnDailyTick()
     expect(net.fetch).toHaveBeenCalledTimes(1)
 
-    mockServerTime(serverMs + 1_000)
-    tick()
-    await vi.waitFor(() => {
-      expect(net.fetch).toHaveBeenCalledTimes(2)
-    })
+    vi.setSystemTime(syncedAt + TRUSTED_TIME_DAILY_TICK_MS)
+    await expect(isTrustedTimeDailyTickDue()).resolves.toBe(true)
 
-    mockServerTime(serverMs + 2_000)
-    await expect(syncTrustedTimeOnLogin()).resolves.toBe(serverMs + 2_000)
-    expect(net.fetch).toHaveBeenCalledTimes(3)
+    mockServerTime(syncedAt + TRUSTED_TIME_DAILY_TICK_MS)
+    await expect(syncTrustedTimeOnDailyTick()).resolves.toBe(syncedAt + TRUSTED_TIME_DAILY_TICK_MS)
+    expect(net.fetch).toHaveBeenCalledTimes(2)
+    await expect(isTrustedTimeDailyTickDue()).resolves.toBe(false)
 
-    setIntervalSpy.mockRestore()
+    vi.useRealTimers()
+  })
+
+  it('treats a never-synced clock as immediately due for the daily tick', async () => {
+    await expect(isTrustedTimeDailyTickDue()).resolves.toBe(true)
+    expect(msUntilTrustedTimeDailyTick()).toBe(0)
+  })
+
+  it('a later successful sync restarts the 24h daily tick so the fallback does not fire the same day', async () => {
+    vi.useFakeTimers()
+    const first = 1_700_000_000_000
+    vi.setSystemTime(first)
+    mockServerTime(first)
+    await syncTrustedTime()
+
+    const almostDue = first + TRUSTED_TIME_DAILY_TICK_MS - 60_000
+    vi.setSystemTime(almostDue)
+    mockServerTime(almostDue)
+    await expect(syncTrustedTime()).resolves.toBe(almostDue)
+    expect(net.fetch).toHaveBeenCalledTimes(2)
+
+    await expect(isTrustedTimeDailyTickDue()).resolves.toBe(false)
+    expect(msUntilTrustedTimeDailyTick(almostDue)).toBe(TRUSTED_TIME_DAILY_TICK_MS)
+
+    mockServerTime(almostDue + 1)
+    await syncTrustedTimeOnDailyTick()
+    expect(net.fetch).toHaveBeenCalledTimes(2)
+
+    vi.useRealTimers()
   })
 
   it('does not reset when currentVideoVersion equals latestVideoVersion', async () => {
