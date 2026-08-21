@@ -926,6 +926,8 @@ body {
   color: #fff7ed;
   font-size: 0.9rem;
   font-weight: 600;
+  white-space: pre-line;
+  text-align: left;
 }
 
 .video-card:fullscreen .video-player {

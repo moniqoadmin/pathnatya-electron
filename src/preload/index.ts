@@ -14,6 +14,7 @@ export type HlsOfflineStatus = {
 export type ScreenCaptureState = {
   active: boolean
   appName: string
+  appNames: string[]
   reason: '' | 'recorder' | 'virtual-machine' | 'clock-mismatch' | 'always-on-top'
 }
 

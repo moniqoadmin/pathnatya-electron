@@ -76,7 +76,11 @@ export async function postAppLog(
  * Best-effort security/ops log. Dedupes and serializes per event so a noisy
  * detector (DOM mutations, capture flaps) cannot stampede `/logs` at launch.
  */
-export function reportAppLog(event: AppLogEvent, tampered: boolean): void {
+export function reportAppLog(
+  event: AppLogEvent,
+  tampered: boolean,
+  metadata?: AppLogMetadata
+): void {
   const key = logKey(event, tampered)
   const now = Date.now()
 
@@ -93,7 +97,7 @@ export function reportAppLog(event: AppLogEvent, tampered: boolean): void {
   lastReportedAt.set(key, now)
   inFlight.add(key)
 
-  void postAppLog(event, tampered)
+  void postAppLog(event, tampered, undefined, metadata ? { metadata } : undefined)
     .catch((error) => {
       console.error(`Unable to report ${event} log:`, error)
     })
