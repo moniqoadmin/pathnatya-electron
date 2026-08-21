@@ -498,11 +498,22 @@ function createWindow(): void {
   mainWindow.on('leave-full-screen', lockSizeAfterFullscreen)
   mainWindow.on('leave-html-full-screen', lockSizeAfterFullscreen)
 
+  const openRendererDevTools = (): void => {
+    if (!isDev || mainWindow.isDestroyed() || mainWindow.webContents.isDevToolsOpened()) {
+      return
+    }
+
+    // Detached: a non-resizable window cannot grow to fit docked DevTools.
+    mainWindow.webContents.openDevTools({ mode: 'detach' })
+  }
+
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
-    if (isDev) {
-      mainWindow.webContents.openDevTools()
-    }
+    openRendererDevTools()
+  })
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    openRendererDevTools()
   })
 
   // OS-level focus loss (Alt-Tab / Cmd-Tab / click another app) and minimise/hide.

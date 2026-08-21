@@ -1,11 +1,10 @@
 import { FormEvent, useState } from 'react'
 import { checkPhone } from '../api/accounts'
-import { postAppLog } from '../api/logs'
 import { ensureOnline } from '../lib/connectivity'
 import { getDeviceId } from '../lib/device-id'
 import { isNetworkError } from '../lib/network'
 import { userError } from '../lib/user-error'
-import { VIDEO_FILES_TAMPERED_MESSAGE } from '../lib/hls-loader'
+import { VIDEO_FILES_TAMPERED_LOGIN_MESSAGE } from '../lib/hls-loader'
 
 interface PhoneCheckPageProps {
   onBack: () => void
@@ -51,18 +50,6 @@ export default function PhoneCheckPage({
         return
       }
 
-      if (await window.pathnatya.isVideoTampered()) {
-        try {
-          await postAppLog('FILES_TAMPERED', true, undefined, {
-            requireAuth: false,
-            timeoutMs: 8_000,
-            retries: 0
-          })
-        } catch (error) {
-          console.error('Unable to report FILES_TAMPERED log:', error)
-        }
-      }
-
       const result = await checkPhone(trimmed, deviceId)
 
       if (!result.exists) {
@@ -94,7 +81,7 @@ export default function PhoneCheckPage({
 
   async function continueOffline(trimmed: string): Promise<void> {
     if (await window.pathnatya.isVideoTampered()) {
-      setError(VIDEO_FILES_TAMPERED_MESSAGE)
+      setError(VIDEO_FILES_TAMPERED_LOGIN_MESSAGE)
       return
     }
 

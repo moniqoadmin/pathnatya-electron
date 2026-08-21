@@ -16,6 +16,12 @@ export const VIDEO_FILES_TAMPERED_MESSAGE = userError(
   'Video files tampered. Please contact admin.'
 )
 
+/** Offline sign-in is blocked until the user is online so /logs can be posted. */
+export const VIDEO_FILES_TAMPERED_LOGIN_MESSAGE = userError(
+  573,
+  'Video files tampered. Please connect to internet to Login'
+)
+
 export function lockLoginAfterVideoTamper(): void {
   void window.pathnatya.markVideoTampered()
 }

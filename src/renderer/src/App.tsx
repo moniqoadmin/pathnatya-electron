@@ -4,6 +4,7 @@ import { fetchServerVersion, isNewerVersion } from './api/health'
 import { postAppLog, reportAppLog, type AppLogEvent } from './api/logs'
 import { startConnectivityWatch } from './lib/connectivity'
 import { clearHlsMemoryVideo, clearHlsPlayback, wipeDownloadedVideo } from './lib/hls-loader'
+import { isOffline } from './lib/network'
 import { clearAllStorage, getSession } from './lib/storage'
 import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
@@ -36,42 +37,22 @@ const APP_LOG_EVENTS = new Set<AppLogEvent>([
 /** Renderer in-memory session is empty on a fresh process; only purge once so HMR remounts keep the token. */
 let didPurgeRendererSession = false
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms)
-  })
-}
-
-/** Keep posting FILES_TAMPERED until /logs accepts it or the warning window ends. */
+/** One /logs attempt while the session token is still valid. Failures stay on the lock file. */
 async function sendFilesTamperedLog(getToken: () => string | null): Promise<boolean> {
-  const deadline = Date.now() + TAMPER_WARNING_SECONDS * 1000
-  let delay = 0
-
-  while (Date.now() <= deadline) {
-    if (delay > 0) {
-      await sleep(delay)
-    }
-
-    const token = getToken()
-    if (token) {
-      try {
-        const sent = await postAppLog('FILES_TAMPERED', true, token, {
-          timeoutMs: 8_000,
-          retries: 0
-        })
-        if (sent) {
-          return true
-        }
-      } catch (error) {
-        console.error('Unable to report FILES_TAMPERED log:', error)
-      }
-    }
-
-    delay = delay === 0 ? 400 : Math.min(delay * 2, 2_000)
+  const token = getToken()
+  if (!token || isOffline()) {
+    return false
   }
 
-  console.warn('Unable to report FILES_TAMPERED log: no successful /logs call')
-  return false
+  try {
+    return await postAppLog('FILES_TAMPERED', true, token, {
+      timeoutMs: 8_000,
+      retries: 0
+    })
+  } catch (error) {
+    console.error('Unable to report FILES_TAMPERED log:', error)
+    return false
+  }
 }
 
 export default function App() {
@@ -262,6 +243,13 @@ export default function App() {
       }
 
       if (event === 'FILES_TAMPERED') {
+        const token = authTokenRef.current ?? getSession()?.token ?? null
+        if (!token) {
+          // Offline / pre-login tamper is persisted as the lock file. /logs
+          // needs a session, so wait until LoginPage posts it after sign-in.
+          return
+        }
+
         // Keeps the first reported location so a later scan hit cannot restart the countdown.
         const locations =
           paths && paths.length > 0 ? paths : path ? [path] : []
@@ -430,6 +418,15 @@ export default function App() {
         onBack={() => {
           setPhoneNumber('')
           setPage('phone-check')
+        }}
+        onTamperLogout={() => {
+          // Do not wipeDownloadedVideo here — that would recreate the lock file.
+          clearHlsPlayback()
+          clearAllStorage()
+          authTokenRef.current = null
+          setAccount(null)
+          setPhoneNumber('')
+          setPage('landing')
         }}
         onSuccess={(loggedInAccount) => {
           authTokenRef.current = getSession()?.token ?? authTokenRef.current

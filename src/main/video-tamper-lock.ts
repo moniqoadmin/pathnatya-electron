@@ -25,8 +25,12 @@ export async function markVideoTampered(): Promise<void> {
   await fs.writeFile(lockFilePath(), `${new Date().toISOString()}\n`, 'utf8')
 }
 
-/** Cleared after a successful online login that can re-download the video. */
+/** Delete the lock file only when it is present. */
 export async function clearVideoTamperLock(): Promise<void> {
+  if (!(await isVideoTampered())) {
+    return
+  }
+
   try {
     await fs.unlink(lockFilePath())
   } catch (error) {

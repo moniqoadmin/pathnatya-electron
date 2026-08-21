@@ -1,12 +1,13 @@
 import { FormEvent, useState } from 'react'
 import { getLoginTokens as fetchLoginTokens, login } from '../api/accounts'
+import { postAppLog } from '../api/logs'
 import { saveLoginTokens, saveSession } from '../lib/storage'
 import { ensureOnline } from '../lib/connectivity'
 import { isNetworkError, isOffline } from '../lib/network'
 import { getDeviceId } from '../lib/device-id'
 import { applyAppConfiguration } from '../lib/app-configuration'
 import { applyVideoKey } from '../lib/video-key'
-import { clearHlsOfflineVideo, VIDEO_FILES_TAMPERED_MESSAGE } from '../lib/hls-loader'
+import { clearHlsOfflineVideo, VIDEO_FILES_TAMPERED_LOGIN_MESSAGE } from '../lib/hls-loader'
 import { userError } from '../lib/user-error'
 import type { Account } from '../api/accounts'
 import PasswordInput from '../components/PasswordInput'
@@ -15,6 +16,8 @@ interface LoginPageProps {
   phoneNumber: string
   onBack: () => void
   onSuccess: (account: Account) => void
+  /** After posting FILES_TAMPERED for a leftover lock file: session must not continue. */
+  onTamperLogout: () => void
 }
 
 const INTERNET_REQUIRED_MESSAGE = userError(
@@ -27,7 +30,8 @@ const CONNECT_TO_INTERNET_TO_LOGIN = userError(2714, 'Connect to internet to log
 export default function LoginPage({
   phoneNumber: initialPhone,
   onBack,
-  onSuccess
+  onSuccess,
+  onTamperLogout
 }: LoginPageProps) {
   const [phoneNumber, setPhoneNumber] = useState(initialPhone)
   const [password, setPassword] = useState('')
@@ -58,7 +62,7 @@ export default function LoginPage({
 
   function setOfflineLoginError(result: 'needs_internet' | 'invalid' | 'tampered'): void {
     if (result === 'tampered') {
-      setError(VIDEO_FILES_TAMPERED_MESSAGE)
+      setError(VIDEO_FILES_TAMPERED_LOGIN_MESSAGE)
       return
     }
 
@@ -112,7 +116,22 @@ export default function LoginPage({
       try {
         keys = await fetchLoginTokens(result.token)
         await applyAppConfiguration(result.token)
-        await window.pathnatya.clearVideoTamperLock()
+        if (await window.pathnatya.isVideoTampered()) {
+          try {
+            await postAppLog('FILES_TAMPERED', true, result.token, {
+              timeoutMs: 8_000,
+              retries: 0
+            })
+          } catch (error) {
+            console.error('Unable to report FILES_TAMPERED log:', error)
+          }
+
+          if (await window.pathnatya.isVideoTampered()) {
+            await window.pathnatya.clearVideoTamperLock()
+            onTamperLogout()
+            return
+          }
+        }
       } catch (tokenError) {
         // Tokens and video config require the server; online-only accounts cannot fall back.
         if (isNetworkError(tokenError)) {
