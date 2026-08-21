@@ -71,8 +71,19 @@ import {
   type PermissionId
 } from './permissions-guard'
 import { API_BASE } from '../shared/api-config'
+import {
+  installPackedDevToolsLockdown,
+  isDevToolsShortcut,
+  shouldRefusePackedDebugLaunch
+} from './devtools-guard'
 
 const isDev = !app.isPackaged
+const packedDebugLaunchBlocked =
+  !isDev && shouldRefusePackedDebugLaunch(process.argv, (name) => app.commandLine.hasSwitch(name))
+
+if (packedDebugLaunchBlocked) {
+  app.exit(1)
+}
 
 // The app keeps running in the tray after its window is closed, so a second launch
 // must hand focus back to the existing instance instead of starting a new one.
@@ -268,32 +279,31 @@ function notifyAppLog(
   }
 }
 
-function isDevToolsShortcut(input: Electron.Input): boolean {
-  if (input.type !== 'keyDown' || input.isAutoRepeat) {
-    return false
+function windowForWebContents(contents: Electron.WebContents): BrowserWindow | undefined {
+  const fromContents = BrowserWindow.fromWebContents(contents)
+  if (fromContents) {
+    return fromContents
   }
 
-  const key = input.key.toLowerCase()
-  if (key === 'f12') {
-    return true
+  try {
+    const host = contents.hostWebContents
+    if (host && !host.isDestroyed()) {
+      return BrowserWindow.fromWebContents(host) ?? undefined
+    }
+  } catch {
+    // hostWebContents is only valid for guest / DevTools contents.
   }
 
-  const inspectorKey = key === 'i' || key === 'j' || key === 'c'
-  if (!inspectorKey) {
-    return false
-  }
+  return BrowserWindow.getAllWindows()[0]
+}
 
-  // Windows / Linux: Ctrl+Shift+I/J/C
-  if (input.control && input.shift && !input.alt && !input.meta) {
-    return true
-  }
-
-  // macOS: Cmd+Option+I/J/C
-  if (input.meta && input.alt && !input.control) {
-    return true
-  }
-
-  return false
+if (!isDev) {
+  installPackedDevToolsLockdown((contents) => {
+    const window = windowForWebContents(contents)
+    if (window) {
+      notifyAppLog(window, 'DEVTOOLS_OPENED', true)
+    }
+  })
 }
 
 function isLogoutShortcut(input: Electron.Input): boolean {
@@ -512,13 +522,6 @@ function createWindow(): void {
     minimizeOtherApps(() => !mainWindow.isDestroyed() && mainWindow.isFocused())
   })
 
-  if (!isDev) {
-    mainWindow.webContents.on('devtools-opened', () => {
-      notifyAppLog(mainWindow, 'DEVTOOLS_OPENED', true)
-      mainWindow.webContents.closeDevTools()
-    })
-  }
-
   createTray(mainWindow)
 
   // Closing the window parks the app in the tray; only an explicit quit tears it down.
@@ -570,9 +573,13 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
-  if (!hasInstanceLock) {
+  if (!hasInstanceLock || packedDebugLaunchBlocked) {
     return
   }
+
+  // Replace Electron's default menu (View → Toggle Developer Tools) before any
+  // window exists. Otherwise the packaged app keeps that item during startup.
+  applyApplicationMenu()
 
   protocol.handle('pathnatya', async (request) => {
     const url = new URL(request.url)
@@ -873,7 +880,6 @@ app.whenReady().then(async () => {
   await purgeExpiredOfflineVideo()
   await cleanupPermissionProbe()
 
-  applyApplicationMenu()
   createWindow()
 
   app.on('activate', () => {
