@@ -31,6 +31,7 @@ const { isAtRestPayload } = await import('./hls-offline-crypto')
 const {
   clearHlsAppConfiguration,
   getConfiguredVideoFileNames,
+  getConfiguredVideoScenes,
   getRequiredHlsSource,
   isAllowedHlsHost,
   loadHlsAppConfiguration,
@@ -43,7 +44,8 @@ const SAMPLE = [
     id: 1,
     videoConfig: {
       DEFAULT_HLS_SOURCE: 'https://cdn.example.com/video-002/playlist.m3u8',
-      ALLOWED_HOSTS: ['cdn.example.com']
+      ALLOWED_HOSTS: ['cdn.example.com'],
+      VIDEO_SCENES: [{ scene: 1, label: 'Scene 1', time: '1.58' }]
     },
     videoFiles: ['copy.mp4', { name: 'stolen.bin' }]
   }
@@ -69,6 +71,9 @@ describe('hls-config', () => {
     expect(isAllowedHlsHost('pathnatya-video-cdn.b-cdn.net')).toBe(false)
     expect(getConfiguredVideoFileNames().has('copy.mp4')).toBe(true)
     expect(getConfiguredVideoFileNames().has('stolen.bin')).toBe(true)
+    expect(getConfiguredVideoScenes()).toEqual([
+      { scene: 1, label: 'Scene 1', time: '1.58' }
+    ])
   })
 
   it('clears hosts and scan names from memory only', () => {
@@ -82,6 +87,7 @@ describe('hls-config', () => {
     expect(() => getRequiredHlsSource()).toThrow(/not configured/u)
     expect(isAllowedHlsHost('cdn.example.com')).toBe(false)
     expect(getConfiguredVideoFileNames().size).toBe(0)
+    expect(getConfiguredVideoScenes()).toEqual([])
   })
 
   it('writes an encrypted UUID file on login save and reads it back', async () => {
@@ -91,6 +97,7 @@ describe('hls-config', () => {
     expect(isAtRestPayload(onDisk)).toBe(true)
     expect(onDisk.toString('utf8')).not.toContain('cdn.example.com')
     expect(onDisk.toString('utf8')).not.toContain('playlist.m3u8')
+    expect(onDisk.toString('utf8')).not.toContain('1.58')
 
     clearHlsAppConfiguration()
     expect(() => getRequiredHlsSource()).toThrow(/not configured/u)
@@ -98,9 +105,13 @@ describe('hls-config', () => {
     await expect(loadHlsAppConfiguration()).resolves.toMatchObject({
       hlsSource: 'https://cdn.example.com/video-002/playlist.m3u8',
       allowedHosts: ['cdn.example.com'],
-      videoFiles: ['copy.mp4', 'stolen.bin']
+      videoFiles: ['copy.mp4', 'stolen.bin'],
+      videoScenes: [{ scene: 1, label: 'Scene 1', time: '1.58' }]
     })
     expect(getRequiredHlsSource()).toBe('https://cdn.example.com/video-002/playlist.m3u8')
     expect(getConfiguredVideoFileNames().has('stolen.bin')).toBe(true)
+    expect(getConfiguredVideoScenes()).toEqual([
+      { scene: 1, label: 'Scene 1', time: '1.58' }
+    ])
   })
 })

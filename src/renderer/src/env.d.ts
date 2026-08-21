@@ -134,7 +134,9 @@ export interface PathnatyaAPI {
     hlsSource: string
     allowedHosts: string[]
     videoFiles: string[]
+    videoScenes?: Array<{ scene: number; label: string; time: string }>
   }) => Promise<void>
+  getVideoScenes: () => Promise<Array<{ scene: number; label: string; time: string }>>
   clearAppConfiguration: () => Promise<void>
   prepareHlsVideo: (sourceUrl?: string) => Promise<{
     playlistUrl: string

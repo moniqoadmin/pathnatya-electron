@@ -16,6 +16,8 @@ import {
   IconVolumeMute,
   SEEK_STEP_S
 } from '../components/VideoIcons'
+import { getStoredVideoScenes } from '../lib/app-configuration'
+import { watchVideoPlayerDom } from '../lib/dom-integrity'
 import {
   attachHlsPlayer,
   clearHlsOfflineVideo,
@@ -29,14 +31,13 @@ import {
 import { isLowDownloadSpeed, isOffline } from '../lib/network'
 import { readStoredVolume, writeStoredVolume } from '../lib/player-prefs'
 import { userError } from '../lib/user-error'
-import { watchVideoPlayerDom } from '../lib/dom-integrity'
 import {
   clearAllStorage,
   clearSession,
   getWatermarkPhoneNumber,
   getWatermarkTeamNumber
 } from '../lib/storage'
-import { drawWatermarkedFrame, formatTime } from '../lib/video-frame'
+import { drawWatermarkedFrame, formatTime, parseTime } from '../lib/video-frame'
 import { recordVideoPlayFullscreen, startVideoPlayLogWatch } from '../lib/video-play-log'
 
 interface VideoLoaderPageProps {
@@ -44,15 +45,6 @@ interface VideoLoaderPageProps {
   sessionTimeoutMs: number
   onLogout: () => void
 }
-
-/** Scene markers for the ~18 min video (times in seconds). */
-const VIDEO_SCENES: Array<{ scene: number; label: string; time: number }> = [
-  { scene: 1, label: 'Scene 1', time: 1 * 60 },
-  { scene: 2, label: 'Scene 2', time: 5 * 60 },
-  { scene: 3, label: 'Scene 3', time: 9 * 60 },
-  { scene: 4, label: 'Scene 4', time: 13 * 60 },
-  { scene: 5, label: 'Scene 5', time: 16 * 60 }
-]
 
 const BANDWIDTH_POLL_MS = 5000
 const WATERMARK_REFRESH_MS = 2000
@@ -104,6 +96,9 @@ export default function VideoLoaderPage({
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
+  const [videoScenes, setVideoScenes] = useState<
+    Array<{ scene: number; label: string; time: number }>
+  >([])
   const [volume, setVolume] = useState(() => volumeRef.current)
   const [networkMbps, setNetworkMbps] = useState<number | null>(null)
   const [fromOffline, setFromOffline] = useState(false)
@@ -205,6 +200,28 @@ export default function VideoLoaderPage({
   })
 
   useEffect(() => startVideoPlayLogWatch(postAppLog), [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    void getStoredVideoScenes().then((scenes) => {
+      if (cancelled) {
+        return
+      }
+
+      setVideoScenes(
+        scenes.map((scene) => ({
+          scene: scene.scene,
+          label: scene.label,
+          time: parseTime(scene.time)
+        }))
+      )
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Playback is only allowed in fullscreen, so leaving it pauses the video.
   useEffect(() => {
@@ -829,17 +846,19 @@ export default function VideoLoaderPage({
                     aria-label="Seek"
                   />
                   {duration > 0 &&
-                    VIDEO_SCENES.filter((scene) => scene.time < duration).map((scene) => (
-                      <button
-                        key={scene.scene}
-                        type="button"
-                        className="video-scene-marker"
-                        style={{ left: `${(scene.time / duration) * 100}%` }}
-                        title={`${scene.label} · ${formatTime(scene.time)}`}
-                        aria-label={`Jump to ${scene.label} at ${formatTime(scene.time)}`}
-                        onClick={() => seekTo(scene.time)}
-                      />
-                    ))}
+                    videoScenes
+                      .filter((scene) => scene.time < duration)
+                      .map((scene) => (
+                        <button
+                          key={scene.scene}
+                          type="button"
+                          className="video-scene-marker"
+                          style={{ left: `${(scene.time / duration) * 100}%` }}
+                          title={`${scene.label} · ${formatTime(scene.time)}`}
+                          aria-label={`Jump to ${scene.label} at ${formatTime(scene.time)}`}
+                          onClick={() => seekTo(scene.time)}
+                        />
+                      ))}
                 </div>
 
                 <span className="video-time">

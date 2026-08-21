@@ -128,7 +128,12 @@ const API = {
     hlsSource: string
     allowedHosts: string[]
     videoFiles: string[]
+    videoScenes?: Array<{ scene: number; label: string; time: string }>
   }) => ipcRenderer.invoke('set-app-configuration', config) as Promise<void>,
+  getVideoScenes: () =>
+    ipcRenderer.invoke('get-video-scenes') as Promise<
+      Array<{ scene: number; label: string; time: string }>
+    >,
   clearAppConfiguration: () => ipcRenderer.invoke('clear-app-configuration') as Promise<void>,
   prepareHlsVideo: (sourceUrl?: string) =>
     ipcRenderer.invoke('prepare-video', sourceUrl) as Promise<{

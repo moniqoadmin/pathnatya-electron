@@ -8,6 +8,17 @@ export async function applyAppConfiguration(authToken: string): Promise<AppVideo
   return config
 }
 
+/** Scene markers from the encrypted on-disk app configuration. Empty when missing. */
+export async function getStoredVideoScenes(): Promise<
+  Array<{ scene: number; label: string; time: string }>
+> {
+  try {
+    return (await window.pathnatya.getVideoScenes()) ?? []
+  } catch {
+    return []
+  }
+}
+
 /** Drops the in-memory copy only. The encrypted UUID file stays on disk. */
 
 export function clearAppConfiguration(): void {

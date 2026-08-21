@@ -45,6 +45,16 @@ export function formatTime(seconds: number): string {
   return `${mins}:${String(secs).padStart(2, '0')}`
 }
 
+/** Parses a clock like `1.58`, `1:58`, or `13.00` into seconds. */
+export function parseTime(clock: string): number {
+  const match = /^(\d+)[:.]([0-5]?\d)$/.exec(clock.trim())
+  if (!match) {
+    return 0
+  }
+
+  return Number(match[1]) * 60 + Number(match[2])
+}
+
 /**
  * Letterboxes the current video frame onto the canvas and stamps the moving
  * watermark. The `<video>` element itself stays hidden so the frames the user

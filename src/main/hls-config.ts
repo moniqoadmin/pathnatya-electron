@@ -4,7 +4,8 @@ import { app } from 'electron'
 import { UNIQUE_APP_CONFIG_NAME } from '../shared/unique-asar-name'
 import {
   parseAppConfigurationsPayload,
-  type AppVideoConfiguration
+  type AppVideoConfiguration,
+  type AppVideoScene
 } from '../shared/app-configuration'
 import { decryptAtRest, encryptAtRest, isAtRestPayload } from './hls-offline-crypto'
 
@@ -85,7 +86,8 @@ export function getHlsAppConfiguration(): AppVideoConfiguration | null {
     ? {
         hlsSource: configuration.hlsSource,
         allowedHosts: [...configuration.allowedHosts],
-        videoFiles: [...configuration.videoFiles]
+        videoFiles: [...configuration.videoFiles],
+        videoScenes: configuration.videoScenes.map((scene) => ({ ...scene }))
       }
     : null
 }
@@ -110,4 +112,9 @@ export function hasHlsAppConfiguration(): boolean {
 /** Lowercased basenames from `videoFiles` for the drive scanner. */
 export function getConfiguredVideoFileNames(): Set<string> {
   return videoFileNames
+}
+
+/** Scene markers from encrypted app configuration. Empty when VIDEO_SCENES is absent. */
+export function getConfiguredVideoScenes(): AppVideoScene[] {
+  return configuration?.videoScenes.map((scene) => ({ ...scene })) ?? []
 }

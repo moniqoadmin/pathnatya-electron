@@ -21,6 +21,7 @@ import {
 import { clearHlsKey, setHlsKey } from './hls-key'
 import {
   clearHlsAppConfiguration,
+  getConfiguredVideoScenes,
   loadHlsAppConfiguration,
   saveHlsAppConfiguration
 } from './hls-config'
@@ -713,6 +714,11 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('set-app-configuration', async (_event, payload: unknown) => {
     await saveHlsAppConfiguration(payload)
+  })
+
+  ipcMain.handle('get-video-scenes', async () => {
+    await loadHlsAppConfiguration()
+    return getConfiguredVideoScenes()
   })
 
   ipcMain.handle('clear-app-configuration', () => {

@@ -1,10 +1,19 @@
 /** Runtime HLS + tamper-scan settings loaded from GET /app-configurations. */
 
+export interface AppVideoScene {
+  scene: number
+  label: string
+  /** Clock as `m.ss` or `m:ss`, e.g. `1.58`. */
+  time: string
+}
+
 export interface AppVideoConfiguration {
   hlsSource: string
   allowedHosts: string[]
   /** Basenames the drive scanner treats as protected copies. */
   videoFiles: string[]
+  /** Seek-bar scene markers from `VIDEO_SCENES`. Empty when the key is missing. */
+  videoScenes: AppVideoScene[]
 }
 
 function uniqueLower(values: string[]): string[] {
@@ -59,6 +68,103 @@ function readStringList(value: unknown): string[] {
   }
 
   return items
+}
+
+const CLOCK_TIME = /^(\d+)[:.]([0-5]?\d)$/u
+
+function isClockTime(value: string): boolean {
+  return CLOCK_TIME.test(value.trim())
+}
+
+function firstNonEmptyScenes(...lists: AppVideoScene[][]): AppVideoScene[] {
+  for (const list of lists) {
+    if (list.length > 0) {
+      return list
+    }
+  }
+
+  return []
+}
+
+/**
+ * Scene markers from `VIDEO_SCENES`. Missing or invalid input yields [] —
+ * playback must not fail when the key is absent.
+ */
+export function parseVideoScenes(value: unknown): AppVideoScene[] {
+  if (value == null || value === '') {
+    return []
+  }
+
+  let raw: unknown = value
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim()
+    if (!trimmed) {
+      return []
+    }
+
+    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+      try {
+        raw = JSON.parse(trimmed) as unknown
+      } catch {
+        return []
+      }
+    } else {
+      raw = trimmed.split(/[,;]/u).map((part) => part.trim()).filter(Boolean)
+    }
+  }
+
+  if (!Array.isArray(raw)) {
+    return []
+  }
+
+  const scenes: AppVideoScene[] = []
+
+  for (const entry of raw) {
+    if (typeof entry === 'string') {
+      const time = entry.trim()
+      if (!isClockTime(time)) {
+        continue
+      }
+
+      const scene = scenes.length + 1
+      scenes.push({ scene, label: `Scene ${scene}`, time })
+      continue
+    }
+
+    if (!entry || typeof entry !== 'object') {
+      continue
+    }
+
+    const record = entry as Record<string, unknown>
+    const time = typeof record.time === 'string' ? record.time.trim() : ''
+    if (!isClockTime(time)) {
+      continue
+    }
+
+    const scene =
+      typeof record.scene === 'number' && Number.isFinite(record.scene) && record.scene > 0
+        ? Math.floor(record.scene)
+        : scenes.length + 1
+    const label =
+      typeof record.label === 'string' && record.label.trim()
+        ? record.label.trim()
+        : `Scene ${scene}`
+    scenes.push({ scene, label, time })
+  }
+
+  return scenes
+}
+
+function scenesFromConfig(
+  record: Record<string, unknown>,
+  videoConfig: Record<string, unknown>
+): AppVideoScene[] {
+  return parseVideoScenes(
+    videoConfig.VIDEO_SCENES ??
+      videoConfig.videoScenes ??
+      record.VIDEO_SCENES ??
+      record.videoScenes
+  )
 }
 
 /** Basenames from `videoFiles` strings or `{ name | file | filename | path }` objects. */
@@ -154,13 +260,14 @@ function parseAppConfigurationItem(item: unknown): AppVideoConfiguration | null 
       hlsSource,
       videoConfig.ALLOWED_HOSTS ?? videoConfig.allowedHosts
     ),
-    videoFiles: parseVideoFileNames(record.videoFiles ?? videoConfig.videoFiles)
+    videoFiles: parseVideoFileNames(record.videoFiles ?? videoConfig.videoFiles),
+    videoScenes: scenesFromConfig(record, videoConfig)
   }
 }
 
 /**
  * Accepts the GET /app-configurations array, a single API row, or the stored
- * `{ hlsSource, allowedHosts, videoFiles }` shape used over IPC / offline session.
+ * `{ hlsSource, allowedHosts, videoFiles, videoScenes }` shape used over IPC / offline session.
  */
 export function parseAppConfigurationsPayload(data: unknown): AppVideoConfiguration {
   if (Array.isArray(data)) {
@@ -184,7 +291,8 @@ export function parseAppConfigurationsPayload(data: unknown): AppVideoConfigurat
         ...first.allowedHosts,
         ...rest.flatMap((item) => item.allowedHosts)
       ]),
-      videoFiles
+      videoFiles,
+      videoScenes: firstNonEmptyScenes(first.videoScenes, ...rest.map((item) => item.videoScenes))
     }
   }
 
@@ -194,7 +302,8 @@ export function parseAppConfigurationsPayload(data: unknown): AppVideoConfigurat
     return {
       hlsSource,
       allowedHosts: hostsFromConfig(hlsSource, stored.allowedHosts),
-      videoFiles: parseVideoFileNames(stored.videoFiles)
+      videoFiles: parseVideoFileNames(stored.videoFiles),
+      videoScenes: parseVideoScenes(stored.videoScenes ?? stored.VIDEO_SCENES)
     }
   }
 
