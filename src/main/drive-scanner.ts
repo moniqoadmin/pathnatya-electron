@@ -105,7 +105,32 @@ function ownedRoots(): string[] {
 }
 
 function isInsideApp(path: string): boolean {
-  return isUnderAny(path, ownedRoots())
+  return isUnderAny(path, ownedRoots()) || isUnderMacInstallerVolume(path)
+}
+
+/**
+ * electron-builder `dmg.title`. Mounted copies show up as
+ * /Volumes/Pathnatya Installer, /Volumes/Pathnatya Installer 1, …
+ * The scanner ignores any /Volumes/<name> whose name contains that phrase.
+ */
+const MAC_INSTALLER_VOLUME_PHRASE = 'pathnatya installer'
+
+/** True when a /Volumes mount name contains "Pathnatya Installer". */
+export function isMacInstallerVolumeName(name: string): boolean {
+  return name.toLowerCase().includes(MAC_INSTALLER_VOLUME_PHRASE)
+}
+
+/** True for files on a mounted Pathnatya Installer disk image (macOS only). */
+export function isUnderMacInstallerVolume(
+  fullPath: string,
+  platform: NodeJS.Platform = process.platform
+): boolean {
+  if (platform !== 'darwin') {
+    return false
+  }
+
+  const match = /^\/volumes\/([^/]+)/iu.exec(fullPath.replace(/\\/gu, '/'))
+  return Boolean(match && isMacInstallerVolumeName(match[1]))
 }
 
 /**
@@ -159,6 +184,10 @@ const PRUNED_DIR_NAMES = new Set([
 ])
 
 function shouldPruneDir(path: string): boolean {
+  if (isUnderMacInstallerVolume(path)) {
+    return true
+  }
+
   const name = basename(path).toLowerCase()
   return PRUNED_DIR_NAMES.has(name)
 }
