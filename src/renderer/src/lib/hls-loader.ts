@@ -22,6 +22,7 @@ export const VIDEO_FILES_TAMPERED_LOGIN_MESSAGE = userError(
   'Video files tampered. Please connect to internet to Login'
 )
 
+/** Used when /logs cannot run yet (e.g. locked offline package). */
 export function lockLoginAfterVideoTamper(): void {
   void window.pathnatya.markVideoTampered()
 }

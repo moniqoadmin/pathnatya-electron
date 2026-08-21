@@ -58,6 +58,8 @@ interface ServerTimeResponse {
   unixMs?: number
   currentVideoVersion?: string
   latestVideoVersion?: string
+  /** Same field the renderer used to read from GET /health. */
+  version?: string | number
 }
 
 export type ClockSkewVerdict = {
@@ -92,6 +94,8 @@ let clockChecked = false
 let triggerSyncInflight: Promise<number | null> | null = null
 /** Set when /health/time reports latestVideoVersion > currentVideoVersion; consumed on app load. */
 let pendingVideoMajorReset = false
+/** App `version` from the latest successful /health/time; renderer force-update check. */
+let lastServerAppVersion: string | null = null
 
 function statePath(): string {
   return join(app.getPath('userData'), STATE_FILE)
@@ -396,8 +400,24 @@ function nextCheckInExpiresAtMs(
   return serverMs + TRUSTED_CHECKIN_TTL_MS
 }
 
+function parseServerAppVersion(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim()
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value)
+  }
+  return null
+}
+
+/** App version from the last successful /health/time this process, or null. */
+export function getServerAppVersion(): string | null {
+  return lastServerAppVersion
+}
+
 /**
  * Fetch authoritative time from `GET /api/health/time`.
+ * Same payload as GET /health: also records `version` for the force-update gate.
  * Updates the local offset so later offline checks do not trust the wall clock alone.
  * Clears reboot penalties and re-enables the wall clock after a successful fetch.
  */
@@ -427,6 +447,8 @@ export async function syncTrustedTime(): Promise<number> {
   if (!Number.isFinite(serverMs)) {
     throw new Error('903 : Trusted time response is invalid.')
   }
+
+  lastServerAppVersion = parseServerAppVersion(data.version)
 
   const previousCheckInExpires = memory?.checkInExpiresAtMs
   const currentVideoVersion = parseVideoVersion(data.currentVideoVersion)
@@ -737,6 +759,7 @@ export async function __resetTrustedTimeForTests(): Promise<void> {
   clockChecked = false
   triggerSyncInflight = null
   pendingVideoMajorReset = false
+  lastServerAppVersion = null
 }
 
 /** Test helper — inject a sync without hitting the network. */

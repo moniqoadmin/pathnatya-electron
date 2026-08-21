@@ -115,6 +115,8 @@ export type MachineProfile = {
 
 const API = {
   getVersion: () => ipcRenderer.invoke('get-version') as Promise<string>,
+  getServerAppVersion: () =>
+    ipcRenderer.invoke('get-server-app-version') as Promise<string | null>,
   getPlatform: () => process.platform,
   isPackaged: () => ipcRenderer.invoke('is-packaged') as Promise<boolean>,
   getDeviceId: () =>

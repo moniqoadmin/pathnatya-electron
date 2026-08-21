@@ -20,7 +20,6 @@ import {
 } from './hls-memory'
 import { deleteAtRestKeyFile } from './hls-offline-crypto'
 import { clearOfflineSession } from './offline-session'
-import { markVideoTampered } from './video-tamper-lock'
 import {
   OFFLINE_VIDEO_TTL_MS,
   assertOfflinePackageIntegrity,
@@ -759,8 +758,9 @@ export function clearMemoryHls(): void {
 /**
  * Duplicate-copy / asar tamper: drop playback, the RAM package, the on-disk
  * folder, and the at-rest key. Always erases — unlike logout, this must not
- * wait for online. Also drops the offline login session and blocks the next
- * offline login until the user signs in online.
+ * wait for online. Also drops the offline login session.
+ * The tamper lock file is written by the renderer only when POST /logs fails
+ * (or cannot run), so a successful report does not leave a leftover marker.
  */
 export async function wipeDownloadedVideo(): Promise<void> {
   cancelHlsOfflineDownload()
@@ -776,7 +776,6 @@ export async function wipeDownloadedVideo(): Promise<void> {
   }
 
   await deleteAtRestKeyFile()
-  await markVideoTampered()
   await clearOfflineSession()
 
   if (wipeError) {

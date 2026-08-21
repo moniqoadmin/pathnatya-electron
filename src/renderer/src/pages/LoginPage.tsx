@@ -16,7 +16,7 @@ interface LoginPageProps {
   phoneNumber: string
   onBack: () => void
   onSuccess: (account: Account) => void
-  /** After posting FILES_TAMPERED for a leftover lock file: session must not continue. */
+  /** After a leftover lock file: post /logs, clear only on success, then end session. */
   onTamperLogout: () => void
 }
 
@@ -115,8 +115,9 @@ export default function LoginPage({
         keys = await fetchLoginTokens(result.token)
         await applyAppConfiguration(result.token)
         if (await window.pathnatya.isVideoTampered()) {
+          let logged = false
           try {
-            await postAppLog('FILES_TAMPERED', true, result.token, {
+            logged = await postAppLog('FILES_TAMPERED', true, result.token, {
               timeoutMs: 8_000,
               retries: 0
             })
@@ -124,11 +125,12 @@ export default function LoginPage({
             console.error('Unable to report FILES_TAMPERED log:', error)
           }
 
-          if (await window.pathnatya.isVideoTampered()) {
+          // Clear only after a successful /logs so a failed post can retry next login.
+          if (logged) {
             await window.pathnatya.clearVideoTamperLock()
-            onTamperLogout()
-            return
           }
+          onTamperLogout()
+          return
         }
       } catch (tokenError) {
         // Tokens and video config require the server; online-only accounts cannot fall back.

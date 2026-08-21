@@ -7,7 +7,7 @@ function lockFilePath(): string {
   return join(app.getPath('userData'), UNIQUE_TAMPER_LOCK_NAME)
 }
 
-/** True after a video tamper wipe until a successful online login. */
+/** True after a failed FILES_TAMPERED /logs post until a successful online retry. */
 export async function isVideoTampered(): Promise<boolean> {
   try {
     await fs.access(lockFilePath())
@@ -18,8 +18,8 @@ export async function isVideoTampered(): Promise<boolean> {
 }
 
 /**
- * Set when the on-disk video is wiped for tamper. Blocks offline login so the
- * user cannot re-enter with a session that no longer has a playable package.
+ * Set only when POST /logs for FILES_TAMPERED fails (or cannot run). Blocks
+ * offline login until an online sign-in can retry the report.
  */
 export async function markVideoTampered(): Promise<void> {
   await fs.writeFile(lockFilePath(), `${new Date().toISOString()}\n`, 'utf8')

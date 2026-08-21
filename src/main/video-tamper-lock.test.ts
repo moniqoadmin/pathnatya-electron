@@ -24,7 +24,7 @@ describe('video-tamper-lock', () => {
     await rm(userDataDir, { recursive: true, force: true })
   })
 
-  it('is unset until a tamper wipe writes the marker', async () => {
+  it('is unset until a failed /logs path writes the marker', async () => {
     await expect(isVideoTampered()).resolves.toBe(false)
 
     await markVideoTampered()

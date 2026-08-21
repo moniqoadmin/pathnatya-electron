@@ -53,6 +53,7 @@ const {
   applyOfflineRebootProtection,
   consumeVideoMajorReset,
   getClockSkewVerdict,
+  getServerAppVersion,
   getRebootProtectionState,
   isOfflineRebootLimitReached,
   isTrustedExpired,
@@ -69,19 +70,20 @@ const {
 
 function mockServerTime(
   serverMs: number,
-  videoVersions?: { currentVideoVersion?: string; latestVideoVersion?: string }
+  extra?: {
+    currentVideoVersion?: string
+    latestVideoVersion?: string
+    version?: string | number
+  }
 ): void {
   vi.mocked(net.fetch).mockResolvedValue({
     ok: true,
     json: async () => ({
       iso: new Date(serverMs).toISOString(),
       unixMs: serverMs,
-      ...(videoVersions?.currentVideoVersion
-        ? { currentVideoVersion: videoVersions.currentVideoVersion }
-        : {}),
-      ...(videoVersions?.latestVideoVersion
-        ? { latestVideoVersion: videoVersions.latestVideoVersion }
-        : {})
+      ...(extra?.currentVideoVersion ? { currentVideoVersion: extra.currentVideoVersion } : {}),
+      ...(extra?.latestVideoVersion ? { latestVideoVersion: extra.latestVideoVersion } : {}),
+      ...(extra?.version !== undefined ? { version: extra.version } : {})
     })
   } as Response)
 }
@@ -620,5 +622,26 @@ describe('trusted-time', () => {
     await syncTrustedTime()
 
     expect(consumeVideoMajorReset()).toBe(false)
+  })
+
+  it('records app version from the same /health/time payload', async () => {
+    mockServerTime(Date.now(), { version: '5.0.0' })
+    await syncTrustedTime()
+
+    expect(getServerAppVersion()).toBe('5.0.0')
+  })
+
+  it('records a numeric app version from /health/time', async () => {
+    mockServerTime(Date.now(), { version: 4 })
+    await syncTrustedTime()
+
+    expect(getServerAppVersion()).toBe('4')
+  })
+
+  it('leaves app version unset when /health/time omits version', async () => {
+    mockServerTime(Date.now())
+    await syncTrustedTime()
+
+    expect(getServerAppVersion()).toBeNull()
   })
 })

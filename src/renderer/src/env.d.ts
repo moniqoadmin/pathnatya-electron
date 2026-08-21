@@ -122,6 +122,7 @@ export interface MachineProfile {
 
 export interface PathnatyaAPI {
   getVersion: () => Promise<string>
+  getServerAppVersion: () => Promise<string | null>
   getPlatform: () => string
   isPackaged: () => Promise<boolean>
   getDeviceId: () => Promise<{ id: string; type: 'mac' | 'ip' | 'uuid' | '' }>

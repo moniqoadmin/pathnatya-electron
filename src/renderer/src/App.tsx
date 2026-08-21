@@ -38,7 +38,7 @@ const APP_LOG_EVENTS = new Set<AppLogEvent>([
 /** Renderer in-memory session is empty on a fresh process; only purge once so HMR remounts keep the token. */
 let didPurgeRendererSession = false
 
-/** One /logs attempt while the session token is still valid. Failures stay on the lock file. */
+/** One /logs attempt while the session token is still valid. */
 async function sendFilesTamperedLog(getToken: () => string | null): Promise<boolean> {
   const token = getToken()
   if (!token || isOffline()) {
@@ -53,6 +53,19 @@ async function sendFilesTamperedLog(getToken: () => string | null): Promise<bool
   } catch (error) {
     console.error('Unable to report FILES_TAMPERED log:', error)
     return false
+  }
+}
+
+/** Persist the lock file only when /logs did not accept FILES_TAMPERED. */
+async function persistTamperLockIfLogsFailed(sent: boolean): Promise<void> {
+  if (sent) {
+    return
+  }
+
+  try {
+    await window.pathnatya.markVideoTampered()
+  } catch (error) {
+    console.error('Unable to write video tamper lock:', error)
   }
 }
 
@@ -113,6 +126,7 @@ export default function App() {
           window.pathnatya.getVersion(),
           fetchServerVersion()
         ])
+        // remote comes from the main-process /health/time sync (same payload as /health).
         if (!cancelled && remote && isNewerVersion(remote, current)) {
           setUpdateRequired(true)
         }
@@ -251,8 +265,8 @@ export default function App() {
       if (event === 'FILES_TAMPERED') {
         const token = authTokenRef.current ?? getSession()?.token ?? null
         if (!token) {
-          // Offline / pre-login tamper is persisted as the lock file. /logs
-          // needs a session, so wait until LoginPage posts it after sign-in.
+          // No session → cannot POST /logs; keep the lock for the next online login.
+          void persistTamperLockIfLogsFailed(false)
           return
         }
 
@@ -268,15 +282,18 @@ export default function App() {
   }, [])
 
   // The warning names the folder the copy was found in, then the session ends.
-  // Showing 6924 always starts /logs; logout waits so the token is not wiped mid-post.
+  // One /logs attempt; lock file is written only when that attempt fails.
   useEffect(() => {
     if (tamperedLocations === null) {
       return
     }
 
-    const pending = sendFilesTamperedLog(
-      () => authTokenRef.current ?? getSession()?.token ?? null
-    )
+    const pending = (async () => {
+      const sent = await sendFilesTamperedLog(
+        () => authTokenRef.current ?? getSession()?.token ?? null
+      )
+      await persistTamperLockIfLogsFailed(sent)
+    })()
 
     const timeoutId = window.setTimeout(() => {
       void (async () => {
@@ -426,7 +443,7 @@ export default function App() {
           setPage('phone-check')
         }}
         onTamperLogout={() => {
-          // Do not wipeDownloadedVideo here — that would recreate the lock file.
+          // Skip wipeDownloadedVideo — package was already cleared at tamper time.
           clearHlsPlayback()
           clearAllStorage()
           authTokenRef.current = null
