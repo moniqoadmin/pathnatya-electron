@@ -241,6 +241,27 @@ function videoConfigRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>
 }
 
+/**
+ * GET /app-configurations returns `{ data: [ { videoConfig, videoFiles } ] }`.
+ * Stored IPC config uses `{ hlsSource, ... }` and must not be unwrapped.
+ */
+function unwrapAppConfigurationsPayload(data: unknown): unknown {
+  const record = videoConfigRecord(data)
+  if (!record || record.data === undefined) {
+    return data
+  }
+
+  if (
+    typeof record.hlsSource === 'string' ||
+    record.videoConfig !== undefined ||
+    record.DEFAULT_HLS_SOURCE !== undefined
+  ) {
+    return data
+  }
+
+  return record.data
+}
+
 function parseAppConfigurationItem(item: unknown): AppVideoConfiguration | null {
   const record = videoConfigRecord(item)
   if (!record) {
@@ -269,7 +290,9 @@ function parseAppConfigurationItem(item: unknown): AppVideoConfiguration | null 
  * Accepts the GET /app-configurations array, a single API row, or the stored
  * `{ hlsSource, allowedHosts, videoFiles, videoScenes }` shape used over IPC / offline session.
  */
-export function parseAppConfigurationsPayload(data: unknown): AppVideoConfiguration {
+export function parseAppConfigurationsPayload(payload: unknown): AppVideoConfiguration {
+  const data = unwrapAppConfigurationsPayload(payload)
+
   if (Array.isArray(data)) {
     const parsed = data
       .map((item) => parseAppConfigurationItem(item))

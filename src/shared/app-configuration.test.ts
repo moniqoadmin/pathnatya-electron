@@ -103,6 +103,36 @@ describe('parseAppConfigurationsPayload', () => {
     })
     expect(withoutScenes.videoScenes).toEqual([])
   })
+
+  it('reads the API { data: [...] } envelope including VIDEO_SCENES', () => {
+    const config = parseAppConfigurationsPayload({
+      data: [
+        {
+          id: 1,
+          videoConfig: {
+            VIDEO_SCENES: [
+              { time: '1.58', label: 'Scene 1', scene: 1 },
+              { time: '5.00', label: 'Scene 2', scene: 2 }
+            ],
+            ALLOWED_HOSTS: ['dasdasd.dsa.net'],
+            DEFAULT_HLS_SOURCE:
+              'https://dasdasdas/playlist.m3u8'
+          },
+          videoFiles: ['segment_win.bi']
+        }
+      ]
+    })
+
+    expect(config.hlsSource).toBe(
+      'https://dsa.cloudfront.net/dsa/dsa.m3u8'
+    )
+    expect(config.allowedHosts).toContain('dassda.cloudfront.net')
+    expect(config.videoFiles).toEqual(['segment_win.bi'])
+    expect(config.videoScenes).toEqual([
+      { scene: 1, label: 'Scene 1', time: '1.58' },
+      { scene: 2, label: 'Scene 2', time: '5.00' }
+    ])
+  })
 })
 
 describe('parseVideoFileNames', () => {
