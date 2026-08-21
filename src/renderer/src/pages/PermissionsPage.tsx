@@ -79,7 +79,7 @@ export default function PermissionsPage({
         </h2>
         <p className="permissions-lead">
           {isMac
-            ? 'macOS will ask for your music library, Photo Library, Desktop, Documents, Downloads, and Accessibility. Choose Allow on each prompt, then tap Check again. If Accessibility is already on, tap Restart Pathnatya.'
+            ? 'macOS will ask for other apps’ data, your music library, Photo Library, Desktop, Documents, Downloads, and Accessibility. Choose Allow on each prompt, then tap Check again. If Accessibility is already on, tap Restart Pathnatya.'
             : 'Pathnatya needs the permissions below before you can continue. Turn each one on in system settings, then tap Check again.'}
         </p>
 

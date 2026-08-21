@@ -57,6 +57,18 @@ const VIDEO_SCENES: Array<{ scene: number; label: string; time: number }> = [
 const BANDWIDTH_POLL_MS = 5000
 const WATERMARK_REFRESH_MS = 2000
 
+function formatDetectedApps(apps: string[], fallback: string): string {
+  if (apps.length === 0) {
+    return `Detected: ${fallback}`
+  }
+
+  if (apps.length === 1) {
+    return `Detected: ${apps[0]}`
+  }
+
+  return `Detected:\n${apps.map((name) => `• ${name}`).join('\n')}`
+}
+
 export default function VideoLoaderPage({
   account,
   sessionTimeoutMs,
@@ -97,7 +109,7 @@ export default function VideoLoaderPage({
   const [fromOffline, setFromOffline] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [captureActive, setCaptureActive] = useState(false)
-  const [captureApp, setCaptureApp] = useState('')
+  const [captureApps, setCaptureApps] = useState<string[]>([])
   const [captureReason, setCaptureReason] = useState<
     '' | 'recorder' | 'virtual-machine' | 'clock-mismatch' | 'always-on-top'
   >('')
@@ -279,17 +291,25 @@ export default function VideoLoaderPage({
     const applyCaptureState = (state: {
       active: boolean
       appName: string
+      appNames?: string[]
       reason: '' | 'recorder' | 'virtual-machine' | 'clock-mismatch' | 'always-on-top'
     }): void => {
+      const apps =
+        state.appNames && state.appNames.length > 0
+          ? state.appNames
+          : state.appName
+            ? state.appName.split(',').map((name) => name.trim()).filter(Boolean)
+            : []
+
       captureActiveRef.current = state.active
       setCaptureActive(state.active)
-      setCaptureApp(state.appName)
+      setCaptureApps(apps)
       setCaptureReason(state.reason)
 
       if (state.reason === 'virtual-machine') {
         if (!vmReportedRef.current) {
           vmReportedRef.current = true
-          reportAppLog('VM_DETECTED', true)
+          reportAppLog('VM_DETECTED', true, { apps })
         }
       } else if (state.reason === 'clock-mismatch') {
         if (!clockReportedRef.current) {
@@ -303,7 +323,7 @@ export default function VideoLoaderPage({
           const previous = captureWasActiveRef.current
           if (previous !== true) {
             captureWasActiveRef.current = true
-            reportAppLog('SCREEN_CAPTURE_STARTED', true)
+            reportAppLog('SCREEN_CAPTURE_STARTED', true, { apps })
           }
         } else if (captureWasActiveRef.current === true) {
           captureWasActiveRef.current = false
@@ -865,7 +885,9 @@ export default function VideoLoaderPage({
               {captureReason === 'virtual-machine' ? (
                 <>
                   <p className="video-fullscreen-gate-text">845 : Virtual machine detected</p>
-                  <p className="video-capture-app">Detected: {captureApp || 'a virtual machine'}</p>
+                  <p className="video-capture-app">
+                    {formatDetectedApps(captureApps, 'a virtual machine')}
+                  </p>
                   <p className="video-fullscreen-gate-hint">
                     The video cannot be played inside a virtual machine, because the host can
                     record the screen. Open Pathnatya on a physical Windows or macOS laptop.
@@ -884,7 +906,9 @@ export default function VideoLoaderPage({
                   <p className="video-fullscreen-gate-text">
                     6183 : Screen recording or sharing detected
                   </p>
-                  <p className="video-capture-app">Detected: {captureApp || 'a capture app'}</p>
+                  <p className="video-capture-app">
+                    {formatDetectedApps(captureApps, 'a capture app')}
+                  </p>
                   <p className="video-fullscreen-gate-hint">
                     Playback is paused. Stop the recording or screen share to continue watching.
                   </p>

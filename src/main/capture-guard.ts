@@ -22,12 +22,45 @@ export type CaptureReason =
 export type ScreenCaptureState = {
   active: boolean
   appName: string
+  appNames: string[]
   reason: CaptureReason
   /** Always-on-top window labels when reason is always-on-top. */
   windows?: string[]
 }
 
-const IDLE_STATE: ScreenCaptureState = { active: false, appName: '', reason: '' }
+const IDLE_STATE: ScreenCaptureState = { active: false, appName: '', appNames: [], reason: '' }
+
+function uniqueAppNames(names: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>()
+  const unique: string[] = []
+
+  for (const name of names) {
+    const trimmed = name?.trim() ?? ''
+    if (!trimmed) {
+      continue
+    }
+
+    const key = trimmed.toLowerCase()
+    if (seen.has(key)) {
+      continue
+    }
+
+    seen.add(key)
+    unique.push(trimmed)
+  }
+
+  return unique
+}
+
+function blockedState(reason: CaptureReason, names: Array<string | null | undefined>): ScreenCaptureState {
+  const appNames = uniqueAppNames(names)
+  return {
+    active: true,
+    appName: appNames.join(', '),
+    appNames,
+    reason
+  }
+}
 
 type CaptureSignature = { name: string; processes: string[] }
 
@@ -245,29 +278,26 @@ function describeConsentSubject(key: string, running: string[]): string | null {
 }
 
 /**
- * Reads `reg query /s` output and returns the name of an app whose capture session
- * is still open (a start time with no matching stop time).
+ * Reads `reg query /s` output and returns every app whose capture session is
+ * still open (a start time with no matching stop time).
  */
-export function findCapturingAppInConsentDump(stdout: string, running: string[]): string | null {
+export function findCapturingAppsInConsentDump(stdout: string, running: string[]): string[] {
   let currentKey = ''
   let start = 0n
   let stop = 0n
+  const found: string[] = []
 
-  const verdict = (): string | null => {
+  const take = (): void => {
     if (!currentKey || start === 0n || stop !== 0n) {
-      return null
+      return
     }
 
-    return describeConsentSubject(currentKey, running)
+    found.push(describeConsentSubject(currentKey, running) ?? '')
   }
 
   for (const line of stdout.split(/\r?\n/)) {
     if (/^HKEY_/i.test(line)) {
-      const detected = verdict()
-      if (detected) {
-        return detected
-      }
-
+      take()
       currentKey = line.trim()
       start = 0n
       stop = 0n
@@ -286,11 +316,14 @@ export function findCapturingAppInConsentDump(stdout: string, running: string[])
     }
   }
 
-  return verdict()
+  take()
+  return uniqueAppNames(found)
 }
 
-/** Name of an app currently holding a screen-capture session, if any. */
-async function findActiveCaptureConsent(running: string[]): Promise<string | null> {
+/** Apps currently holding a screen-capture session, if any. */
+async function findActiveCaptureConsent(running: string[]): Promise<string[]> {
+  const found: string[] = []
+
   for (const consentKey of CAPTURE_CONSENT_KEYS) {
     try {
       const { stdout } = await execFileAsync('reg.exe', ['query', consentKey, '/s'], {
@@ -300,17 +333,14 @@ async function findActiveCaptureConsent(running: string[]): Promise<string | nul
         maxBuffer: 4 * 1024 * 1024
       })
 
-      const detected = findCapturingAppInConsentDump(stdout, running)
-      if (detected) {
-        return detected
-      }
+      found.push(...findCapturingAppsInConsentDump(stdout, running))
     } catch {
       // Missing key simply means nothing has ever captured under this capability.
       continue
     }
   }
 
-  return null
+  return uniqueAppNames(found)
 }
 
 function matchesSignature(running: string[], signature: CaptureSignature): boolean {
@@ -411,11 +441,12 @@ function toDisplayName(processName: string): string {
 }
 
 /**
- * Name of a running process that looks like a screen recorder by keyword, if any.
+ * Names of running processes that look like a screen recorder by keyword.
  * Used as a backstop for tools not covered by the consent signal or exact list.
  */
-export function matchRecorderByKeyword(running: string[]): string | null {
+export function matchRecordersByKeyword(running: string[]): string[] {
   const self = basename(process.execPath).toLowerCase()
+  const names: string[] = []
 
   for (const processName of running) {
     if (processName === self) {
@@ -425,11 +456,11 @@ export function matchRecorderByKeyword(running: string[]): string | null {
     const normalized = processName.replace(/\.(exe|app)$/i, '').replace(/[_-]+/g, ' ')
 
     if (RECORDER_NAME_KEYWORDS.some((keyword) => normalized.includes(keyword))) {
-      return toDisplayName(processName)
+      names.push(toDisplayName(processName))
     }
   }
 
-  return null
+  return uniqueAppNames(names)
 }
 
 async function detectCapture(): Promise<ScreenCaptureState> {
@@ -438,14 +469,14 @@ async function detectCapture(): Promise<ScreenCaptureState> {
   // being virtual, so this verdict latches for the rest of the session.
   const vm = getVirtualMachineVerdict()
   if (vm.virtual) {
-    return { active: true, appName: vm.vendor, reason: 'virtual-machine' }
+    return blockedState('virtual-machine', [vm.vendor])
   }
 
   // Wrong system clock vs server GMT — refuse playback until the user fixes time
   // and restarts (login / every 5th fullscreen click re-stamps this verdict).
   const clock = getClockSkewVerdict()
   if (clock.mismatched) {
-    return { active: true, appName: 'system clock', reason: 'clock-mismatch' }
+    return blockedState('clock-mismatch', ['system clock'])
   }
 
   // Another app pinned always-on-top can sit over the video. Window Inspector is
@@ -454,7 +485,7 @@ async function detectCapture(): Promise<ScreenCaptureState> {
     const pinned = await findPinnedAlwaysOnTopWindows(process.pid)
     if (pinned.length > 0) {
       const windows = pinned.map((win) => formatTopmostWindowLabel(win))
-      return { active: true, appName: windows[0] ?? '', reason: 'always-on-top', windows }
+      return { ...blockedState('always-on-top', windows), windows }
     }
   }
 
@@ -469,27 +500,25 @@ async function detectCapture(): Promise<ScreenCaptureState> {
     return IDLE_STATE
   }
 
+  const names: string[] = []
+
   if (process.platform === 'win32') {
-    const capturing = await findActiveCaptureConsent(running)
-    if (capturing) {
-      return { active: true, appName: capturing, reason: 'recorder' }
-    }
+    names.push(...(await findActiveCaptureConsent(running)))
   }
 
   const signatures = process.platform === 'win32' ? WINDOWS_SIGNATURES : MACOS_SIGNATURES
-  const detected = signatures.find((signature) => matchesSignature(running, signature))
-  if (detected) {
-    return { active: true, appName: detected.name, reason: 'recorder' }
-  }
+  names.push(
+    ...signatures.filter((signature) => matchesSignature(running, signature)).map((signature) => signature.name)
+  )
 
-  const packaged = packagedRecorders.find((entry) => running.includes(entry.executable))
-  if (packaged) {
-    return { active: true, appName: packaged.appName, reason: 'recorder' }
-  }
+  names.push(
+    ...packagedRecorders.filter((entry) => running.includes(entry.executable)).map((entry) => entry.appName)
+  )
 
-  const heuristic = matchRecorderByKeyword(running)
-  if (heuristic) {
-    return { active: true, appName: heuristic, reason: 'recorder' }
+  names.push(...matchRecordersByKeyword(running))
+
+  if (names.length > 0) {
+    return blockedState('recorder', names)
   }
 
   return IDLE_STATE

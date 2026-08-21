@@ -18,6 +18,7 @@ export interface HlsOfflineStatus {
 export interface ScreenCaptureState {
   active: boolean
   appName: string
+  appNames: string[]
   /** '' when playback is allowed. */
   reason: '' | 'recorder' | 'virtual-machine' | 'clock-mismatch' | 'always-on-top'
   /** Always-on-top window labels when reason is always-on-top. */
@@ -76,6 +77,7 @@ export type PermissionId =
   | 'videos'
   | 'music-library'
   | 'photo-library'
+  | 'app-data'
 
 export interface AppPermission {
   id: PermissionId

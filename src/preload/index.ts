@@ -14,6 +14,7 @@ export type HlsOfflineStatus = {
 export type ScreenCaptureState = {
   active: boolean
   appName: string
+  appNames: string[]
   reason: '' | 'recorder' | 'virtual-machine' | 'clock-mismatch' | 'always-on-top'
   windows?: string[]
 }
@@ -69,6 +70,7 @@ export type PermissionId =
   | 'videos'
   | 'music-library'
   | 'photo-library'
+  | 'app-data'
 
 export type AppPermission = {
   id: PermissionId

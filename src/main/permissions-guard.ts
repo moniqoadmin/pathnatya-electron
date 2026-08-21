@@ -18,6 +18,7 @@ export type PermissionId =
   | FolderPermissionId
   | 'music-library'
   | 'photo-library'
+  | 'app-data'
 
 export type AppPermission = {
   id: PermissionId
@@ -395,6 +396,69 @@ function photoLibraryHowTo(): string {
   )
 }
 
+function isOwnAppContainer(name: string): boolean {
+  const lower = name.toLowerCase()
+  return lower.includes('pathnatya') || lower.includes('electron')
+}
+
+function listDirBlocking(dir: string): ReturnType<typeof spawnSync> {
+  return spawnSync('/bin/ls', ['-A', '-1', dir], {
+    encoding: 'utf8',
+    timeout: FOLDER_PROBE_TIMEOUT_MS
+  })
+}
+
+/**
+ * Triggers the macOS “would like to access data from other apps” prompt by
+ * listing another app’s sandbox container. The duplicate-file scan walks the
+ * same area later, so this must happen on the permissions screen.
+ */
+function checkMacAppDataAccess(): boolean {
+  const containers = join(homedir(), 'Library', 'Containers')
+  const listed = listDirBlocking(containers)
+  const listedOutput = `${listed.stderr ?? ''}\n${listed.stdout ?? ''}`
+  const listedTimedOut = Boolean(
+    listed.error && (listed.error as NodeJS.ErrnoException).code === 'ETIMEDOUT'
+  )
+
+  if (listedTimedOut) {
+    return false
+  }
+
+  if (listed.status !== 0) {
+    return macFolderProbeIsGranted({
+      folderMissing: false,
+      lsStatus: listed.status,
+      lsTimedOut: false,
+      lsOutput: listedOutput
+    })
+  }
+
+  const other = (listed.stdout ?? '')
+    .split('\n')
+    .map((name) => name.trim())
+    .find((name) => name && !name.startsWith('.') && !isOwnAppContainer(name))
+
+  if (!other) {
+    return true
+  }
+
+  const inner = listDirBlocking(join(containers, other, 'Data'))
+  return macFolderProbeIsGranted({
+    folderMissing: false,
+    lsStatus: inner.status,
+    lsTimedOut: Boolean(inner.error && (inner.error as NodeJS.ErrnoException).code === 'ETIMEDOUT'),
+    lsOutput: `${inner.stderr ?? ''}\n${inner.stdout ?? ''}`
+  })
+}
+
+function appDataHowTo(): string {
+  return (
+    'When macOS asks to access data from other apps, choose Allow. If you tapped Don’t Allow, ' +
+    'fully quit Pathnatya and open it again, then choose Allow on that prompt.'
+  )
+}
+
 export async function getAppPermissionsStatus(): Promise<AppPermissionsStatus> {
   const platform =
     process.platform === 'darwin' || process.platform === 'win32' ? process.platform : 'other'
@@ -409,11 +473,20 @@ export async function getAppPermissionsStatus(): Promise<AppPermissionsStatus> {
   }
 
   if (process.platform === 'darwin') {
+    const appDataGranted = checkMacAppDataAccess()
     const musicLibraryGranted = await checkMacMusicLibrary()
     const photoLibraryGranted = await checkMacPhotoLibrary()
 
     const permissions: AppPermission[] = [
       filesPermission,
+      {
+        id: 'app-data',
+        label: 'Other apps’ data',
+        description: 'Needed so Pathnatya can check other apps’ folders for unauthorized copies of the video.',
+        required: true,
+        granted: appDataGranted,
+        howToEnable: appDataHowTo()
+      },
       {
         id: 'music-library',
         label: 'Music library',

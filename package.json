@@ -1,6 +1,6 @@
 {
   "name": "pathnatya",
-  "version": "4.10.1",
+  "version": "4.10.2",
   "description": "Secure Electron desktop application.",
   "main": "dist/main/index.js",
   "author": "Pathnatya",
@@ -97,6 +97,7 @@
         "NSDownloadsFolderUsageDescription": "Pathnatya needs access to your Downloads folder to check this device for unauthorized copies of the video.",
         "NSAppleMusicUsageDescription": "Pathnatya needs access to your music library to check this device for unauthorized copies of the video.",
         "NSPhotoLibraryUsageDescription": "Pathnatya needs access to your Photo Library to check this device for unauthorized copies of the video.",
+        "NSAppDataUsageDescription": "Pathnatya needs to check other apps’ folders on this Mac for unauthorized copies of the video.",
         "PHPhotoLibraryPreventAutomaticLimitedAccessAlert": true
       }
     },
