@@ -132,6 +132,7 @@ const API = {
     videoFiles: string[]
     videoScenes?: Array<{ scene: number; label: string; time: string }>
     endDate?: string | null
+    offlineWindow?: number
   }) => ipcRenderer.invoke('set-app-configuration', config) as Promise<void>,
   getVideoScenes: () =>
     ipcRenderer.invoke('get-video-scenes') as Promise<

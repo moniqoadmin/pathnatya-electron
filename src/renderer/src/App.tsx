@@ -319,8 +319,8 @@ export default function App() {
     setPage('landing')
   }, [])
 
-  // Every 5 minutes: if the 2-day check-in window has passed, end the session
-  // so the user must log in again. Downloaded video is left on disk.
+  // Every 5 minutes: if END_DATE has passed (video is deleted) or the check-in
+  // window has expired (video is kept), end the session so they must log in again.
   useEffect(() => {
     if (!account) {
       return

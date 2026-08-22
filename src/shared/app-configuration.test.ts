@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_OFFLINE_WINDOW_DAYS,
+  DEFAULT_OFFLINE_WINDOW_MS,
   FALLBACK_VIDEO_TTL_MS,
   parseAppConfigurationsPayload,
   parseEndDate,
+  parseOfflineWindow,
   parseVideoFileNames,
   parseVideoScenes,
   resolveVideoExpiresAt
@@ -30,6 +33,7 @@ describe('parseAppConfigurationsPayload', () => {
     expect(config.videoFiles).toEqual([])
     expect(config.videoScenes).toEqual([])
     expect(config.endDate).toBeNull()
+    expect(config.offlineWindow).toBe(DEFAULT_OFFLINE_WINDOW_DAYS)
   })
 
   it('adds the source hostname when ALLOWED_HOSTS is omitted', () => {
@@ -77,6 +81,7 @@ describe('parseAppConfigurationsPayload', () => {
     expect(config.videoFiles).toEqual(['secret.asar'])
     expect(config.videoScenes).toEqual([])
     expect(config.endDate).toBeNull()
+    expect(config.offlineWindow).toBe(DEFAULT_OFFLINE_WINDOW_DAYS)
   })
 
   it('rejects http sources and empty payloads', () => {
@@ -163,6 +168,32 @@ describe('parseAppConfigurationsPayload', () => {
     })
 
     expect(config.endDate).toBe('2026-01-07T00:00:00.000Z')
+    expect(config.offlineWindow).toBe(DEFAULT_OFFLINE_WINDOW_DAYS)
+  })
+
+  it('reads OFFLINE_WINDOW in days and defaults to 2 when omitted', () => {
+    const configured = parseAppConfigurationsPayload({
+      videoConfig: {
+        DEFAULT_HLS_SOURCE: 'https://cdn.example.com/show/playlist.m3u8',
+        OFFLINE_WINDOW: 5
+      }
+    })
+    expect(configured.offlineWindow).toBe(5)
+
+    const fromString = parseAppConfigurationsPayload({
+      videoConfig: {
+        DEFAULT_HLS_SOURCE: 'https://cdn.example.com/show/playlist.m3u8',
+        OFFLINE_WINDOW: '3'
+      }
+    })
+    expect(fromString.offlineWindow).toBe(3)
+
+    const omitted = parseAppConfigurationsPayload({
+      videoConfig: {
+        DEFAULT_HLS_SOURCE: 'https://cdn.example.com/show/playlist.m3u8'
+      }
+    })
+    expect(omitted.offlineWindow).toBe(2)
   })
 })
 
@@ -221,6 +252,24 @@ describe('parseEndDate', () => {
     expect(parseEndDate(undefined)).toBeNull()
     expect(parseEndDate(null)).toBeNull()
     expect(parseEndDate('')).toBeNull()
+  })
+})
+
+describe('parseOfflineWindow', () => {
+  it('defaults to 2 days when omitted or unusable', () => {
+    expect(parseOfflineWindow(undefined)).toBe(DEFAULT_OFFLINE_WINDOW_DAYS)
+    expect(parseOfflineWindow(null)).toBe(DEFAULT_OFFLINE_WINDOW_DAYS)
+    expect(parseOfflineWindow('')).toBe(DEFAULT_OFFLINE_WINDOW_DAYS)
+    expect(parseOfflineWindow(0)).toBe(DEFAULT_OFFLINE_WINDOW_DAYS)
+    expect(parseOfflineWindow(-1)).toBe(DEFAULT_OFFLINE_WINDOW_DAYS)
+    expect(parseOfflineWindow('nope')).toBe(DEFAULT_OFFLINE_WINDOW_DAYS)
+    expect(DEFAULT_OFFLINE_WINDOW_MS).toBe(2 * 24 * 60 * 60 * 1000)
+  })
+
+  it('accepts whole positive days from numbers or numeric strings', () => {
+    expect(parseOfflineWindow(5)).toBe(5)
+    expect(parseOfflineWindow('7')).toBe(7)
+    expect(parseOfflineWindow(2.9)).toBe(2)
   })
 })
 

@@ -137,6 +137,7 @@ export interface PathnatyaAPI {
     videoFiles: string[]
     videoScenes?: Array<{ scene: number; label: string; time: string }>
     endDate?: string | null
+    offlineWindow?: number
   }) => Promise<void>
   getVideoScenes: () => Promise<Array<{ scene: number; label: string; time: string }>>
   clearAppConfiguration: () => Promise<void>

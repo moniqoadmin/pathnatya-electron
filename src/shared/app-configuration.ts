@@ -20,10 +20,25 @@ export interface AppVideoConfiguration {
    * Null when the key is omitted — callers then use 15 days from trusted now.
    */
   endDate: string | null
+  /**
+   * Days between online check-ins from `OFFLINE_WINDOW`.
+   * Defaults to `DEFAULT_OFFLINE_WINDOW_DAYS` when the key is omitted.
+   */
+  offlineWindow: number
 }
 
 /** When `END_DATE` is omitted, video and offline login last 15 days from trusted now. */
 export const FALLBACK_VIDEO_TTL_MS = 21 * 24 * 60 * 60 * 1000
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+
+/** When `OFFLINE_WINDOW` is omitted, offline video must re-check in this often. */
+export const DEFAULT_OFFLINE_WINDOW_DAYS = 2
+export const DEFAULT_OFFLINE_WINDOW_MS = DEFAULT_OFFLINE_WINDOW_DAYS * MS_PER_DAY
+
+export function offlineWindowMs(days: number): number {
+  return days * MS_PER_DAY
+}
 
 /** `END_DATE` when present; otherwise `serverNowMs + 15 days`. */
 export function resolveVideoExpiresAt(endDate: string | null, serverNowMs: number): string {
@@ -173,6 +188,41 @@ function endDateFromConfig(
 ): string | null {
   return parseEndDate(
     videoConfig.END_DATE ?? videoConfig.endDate ?? record.END_DATE ?? record.endDate
+  )
+}
+
+/**
+ * `OFFLINE_WINDOW` from GET /app-configurations, in whole days.
+ * Missing or unusable values fall back to 2.
+ */
+export function parseOfflineWindow(value: unknown): number {
+  if (value == null || value === '') {
+    return DEFAULT_OFFLINE_WINDOW_DAYS
+  }
+
+  const numeric =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number(value.trim())
+        : Number.NaN
+
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return DEFAULT_OFFLINE_WINDOW_DAYS
+  }
+
+  return Math.floor(numeric)
+}
+
+function offlineWindowFromConfig(
+  record: Record<string, unknown>,
+  videoConfig: Record<string, unknown>
+): number {
+  return parseOfflineWindow(
+    videoConfig.OFFLINE_WINDOW ??
+      videoConfig.offlineWindow ??
+      record.OFFLINE_WINDOW ??
+      record.offlineWindow
   )
 }
 
@@ -373,13 +423,14 @@ function parseAppConfigurationItem(item: unknown): AppVideoConfiguration | null 
     ),
     videoFiles: parseVideoFileNames(record.videoFiles ?? videoConfig.videoFiles),
     videoScenes: scenesFromConfig(record, videoConfig),
-    endDate: endDateFromConfig(record, videoConfig)
+    endDate: endDateFromConfig(record, videoConfig),
+    offlineWindow: offlineWindowFromConfig(record, videoConfig)
   }
 }
 
 /**
  * Accepts the GET /app-configurations array, a single API row, or the stored
- * `{ hlsSource, allowedHosts, videoFiles, videoScenes, endDate }` shape used over IPC / offline session.
+ * `{ hlsSource, allowedHosts, videoFiles, videoScenes, endDate, offlineWindow }` shape used over IPC / offline session.
  */
 export function parseAppConfigurationsPayload(payload: unknown): AppVideoConfiguration {
   const data = unwrapAppConfigurationsPayload(payload)
@@ -407,7 +458,8 @@ export function parseAppConfigurationsPayload(payload: unknown): AppVideoConfigu
       ]),
       videoFiles,
       videoScenes: firstNonEmptyScenes(first.videoScenes, ...rest.map((item) => item.videoScenes)),
-      endDate: firstEndDate(first.endDate, ...rest.map((item) => item.endDate))
+      endDate: firstEndDate(first.endDate, ...rest.map((item) => item.endDate)),
+      offlineWindow: first.offlineWindow
     }
   }
 
@@ -419,7 +471,8 @@ export function parseAppConfigurationsPayload(payload: unknown): AppVideoConfigu
       allowedHosts: hostsFromConfig(hlsSource, stored.allowedHosts),
       videoFiles: parseVideoFileNames(stored.videoFiles),
       videoScenes: parseVideoScenes(stored.videoScenes ?? stored.VIDEO_SCENES),
-      endDate: parseEndDate(stored.endDate ?? stored.END_DATE)
+      endDate: parseEndDate(stored.endDate ?? stored.END_DATE),
+      offlineWindow: parseOfflineWindow(stored.offlineWindow ?? stored.OFFLINE_WINDOW)
     }
   }
 

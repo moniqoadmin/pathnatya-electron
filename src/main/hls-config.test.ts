@@ -33,6 +33,7 @@ const {
   getConfiguredVideoFileNames,
   getConfiguredVideoScenes,
   getConfiguredVideoEndDate,
+  getConfiguredOfflineWindowMs,
   getRequiredHlsSource,
   isAllowedHlsHost,
   loadHlsAppConfiguration,
@@ -77,6 +78,7 @@ describe('hls-config', () => {
       { scene: 1, label: 'Scene 1', time: '1.58' }
     ])
     expect(getConfiguredVideoEndDate()).toBe('2026-01-07T00:00:00.000Z')
+    expect(getConfiguredOfflineWindowMs()).toBe(2 * 24 * 60 * 60 * 1000)
   })
 
   it('clears hosts and scan names from memory only', () => {
@@ -92,6 +94,7 @@ describe('hls-config', () => {
     expect(getConfiguredVideoFileNames().size).toBe(0)
     expect(getConfiguredVideoScenes()).toEqual([])
     expect(getConfiguredVideoEndDate()).toBeNull()
+    expect(getConfiguredOfflineWindowMs()).toBe(2 * 24 * 60 * 60 * 1000)
   })
 
   it('writes an encrypted UUID file on login save and reads it back', async () => {
@@ -111,7 +114,8 @@ describe('hls-config', () => {
       allowedHosts: ['cdn.example.com'],
       videoFiles: ['copy.mp4', 'stolen.bin'],
       videoScenes: [{ scene: 1, label: 'Scene 1', time: '1.58' }],
-      endDate: '2026-01-07T00:00:00.000Z'
+      endDate: '2026-01-07T00:00:00.000Z',
+      offlineWindow: 2
     })
     expect(getRequiredHlsSource()).toBe('https://cdn.example.com/video-002/playlist.m3u8')
     expect(getConfiguredVideoFileNames().has('stolen.bin')).toBe(true)
@@ -119,5 +123,17 @@ describe('hls-config', () => {
       { scene: 1, label: 'Scene 1', time: '1.58' }
     ])
     expect(getConfiguredVideoEndDate()).toBe('2026-01-07T00:00:00.000Z')
+    expect(getConfiguredOfflineWindowMs()).toBe(2 * 24 * 60 * 60 * 1000)
+  })
+
+  it('uses OFFLINE_WINDOW days from app-configurations', () => {
+    setHlsAppConfiguration({
+      videoConfig: {
+        DEFAULT_HLS_SOURCE: 'https://cdn.example.com/video-002/playlist.m3u8',
+        OFFLINE_WINDOW: 5
+      }
+    })
+
+    expect(getConfiguredOfflineWindowMs()).toBe(5 * 24 * 60 * 60 * 1000)
   })
 })

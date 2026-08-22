@@ -64,6 +64,7 @@ const {
   msUntilTrustedTimeDailyTick,
   readTrustedNow,
   setNumberOfRebootFromAccount,
+  setCheckInTtlMs,
   syncTrustedTime,
   syncTrustedTimeOnDailyTick
 } = await import('./trusted-time')
@@ -240,6 +241,16 @@ describe('trusted-time', () => {
     // Wall clock has advanced 2 days since the last sync.
     __seedTrustedTimeForTests(serverMs, Date.now() - twoDays)
     expect(isTrustedCheckInExpired(twoDays)).toBe(true)
+  })
+
+  it('retargets a default 2-day stamp when OFFLINE_WINDOW loads from app configuration', () => {
+    const serverMs = 1_700_000_000_000
+    const fiveDays = 5 * 24 * 60 * 60 * 1000
+    __seedTrustedTimeForTests(serverMs, Date.now())
+    expect(getRebootProtectionState().checkInExpiresAtMs).toBe(serverMs + TRUSTED_CHECKIN_TTL_MS)
+
+    setCheckInTtlMs(fiveDays)
+    expect(getRebootProtectionState().checkInExpiresAtMs).toBe(serverMs + fiveDays)
   })
 
   it('fails closed on unsynced or rolled-back clocks for check-in', () => {

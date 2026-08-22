@@ -3,6 +3,7 @@ import { join } from 'path'
 import { app, net, safeStorage } from 'electron'
 import { APP_KEY, API_BASE } from '../shared/api-config'
 import { DAILY_ONLINE_TICK_MS } from '../shared/daily-online-tick'
+import { DEFAULT_OFFLINE_WINDOW_MS } from '../shared/app-configuration'
 import { isNewerVideoVersion, parseVideoVersion } from '../shared/video-version'
 import { isUptimeReboot, nextBootId, readOsBootId, readUptimeSec } from './boot-id'
 
@@ -22,8 +23,8 @@ export const CLOCK_SKEW_TOLERANCE_MS = 60 * 60 * 1000
  * the window so the next due time is 24h from that hit.
  */
 export const TRUSTED_TIME_DAILY_TICK_MS = DAILY_ONLINE_TICK_MS
-/** Offline downloads must re-verify server time at least this often. */
-export const TRUSTED_CHECKIN_TTL_MS = 2 * 24 * 60 * 60 * 1000
+/** Default check-in window when `OFFLINE_WINDOW` is omitted (2 days). */
+export const TRUSTED_CHECKIN_TTL_MS = DEFAULT_OFFLINE_WINDOW_MS
 /** Temporary jump applied to effective now after each offline OS reboot. */
 export const OFFLINE_REBOOT_PENALTY_MS = TRUSTED_CHECKIN_TTL_MS
 /** Used when the backend has not sent `numberOfReboot`. */
@@ -45,7 +46,7 @@ interface TrustedTimeState {
   rebootPenaltyMs?: number
   /** When true, wall clock is ignored until the next successful server sync. */
   distrustWallClock?: boolean
-  /** Absolute 2-day check-in deadline from the last qualifying server sync. */
+  /** Absolute check-in deadline from the last qualifying server sync (`OFFLINE_WINDOW`). */
   checkInExpiresAtMs?: number
   /** Offline OS reboots since the last successful server sync. */
   offlineRebootCount?: number
@@ -96,6 +97,8 @@ let triggerSyncInflight: Promise<number | null> | null = null
 let pendingVideoMajorReset = false
 /** App `version` from the latest successful /health/time; renderer force-update check. */
 let lastServerAppVersion: string | null = null
+/** From `OFFLINE_WINDOW` after app configuration is loaded; otherwise the 2-day default. */
+let configuredCheckInTtlMs: number | null = null
 
 function statePath(): string {
   return join(app.getPath('userData'), STATE_FILE)
@@ -188,6 +191,10 @@ function parseStateJson(raw: string): TrustedTimeState | null {
   }
 }
 
+function checkInTtlMs(): number {
+  return configuredCheckInTtlMs ?? TRUSTED_CHECKIN_TTL_MS
+}
+
 function withCheckInExpiry(state: TrustedTimeState): TrustedTimeState {
   if (state.checkInExpiresAtMs != null) {
     return state
@@ -195,7 +202,7 @@ function withCheckInExpiry(state: TrustedTimeState): TrustedTimeState {
 
   return {
     ...state,
-    checkInExpiresAtMs: state.serverMsAtSync + TRUSTED_CHECKIN_TTL_MS
+    checkInExpiresAtMs: state.serverMsAtSync + checkInTtlMs()
   }
 }
 
@@ -390,14 +397,41 @@ function nextCheckInExpiresAtMs(
   serverMs: number,
   previousExpiresAtMs: number | undefined
 ): number {
-  // Keep the original 2-day deadline while it is still in the future so a
+  // Keep the original check-in deadline while it is still in the future so a
   // reconnect (including after an offline-reboot penalty) restores remaining days
   // instead of granting a fresh window.
   if (previousExpiresAtMs != null && previousExpiresAtMs > serverMs) {
     return previousExpiresAtMs
   }
 
-  return serverMs + TRUSTED_CHECKIN_TTL_MS
+  return serverMs + checkInTtlMs()
+}
+
+/**
+ * Apply `OFFLINE_WINDOW` from app configuration. If the current deadline was
+ * stamped with the 2-day default from this same sync (startup, before login),
+ * retarget it to the configured window without granting a reconnect refresh.
+ */
+export function setCheckInTtlMs(ms: number): void {
+  configuredCheckInTtlMs =
+    Number.isFinite(ms) && ms > 0 ? Math.trunc(ms) : TRUSTED_CHECKIN_TTL_MS
+
+  if (!memory || memory.checkInExpiresAtMs == null) {
+    return
+  }
+
+  const defaultDeadline = memory.serverMsAtSync + TRUSTED_CHECKIN_TTL_MS
+  if (memory.checkInExpiresAtMs !== defaultDeadline) {
+    return
+  }
+
+  const nextDeadline = memory.serverMsAtSync + checkInTtlMs()
+  if (nextDeadline === memory.checkInExpiresAtMs) {
+    return
+  }
+
+  memory = { ...memory, checkInExpiresAtMs: nextDeadline }
+  void persist(memory)
 }
 
 function parseServerAppVersion(value: unknown): string | null {
@@ -722,7 +756,7 @@ export function isTrustedTtlExpired(savedAt: string, ttlMs: number): boolean {
 
 /**
  * True when the last successful server time sync is older than `ttlMs`.
- * Uses unpenalized trusted time so the 2-day window is not consumed by a reboot
+ * Uses unpenalized trusted time so the check-in window is not consumed by a reboot
  * penalty — reboot caps are checked separately via `isOfflineRebootLimitReached`.
  */
 export function isTrustedCheckInExpired(ttlMs: number): boolean {
@@ -760,6 +794,7 @@ export async function __resetTrustedTimeForTests(): Promise<void> {
   triggerSyncInflight = null
   pendingVideoMajorReset = false
   lastServerAppVersion = null
+  configuredCheckInTtlMs = null
 }
 
 /** Test helper — inject a sync without hitting the network. */
@@ -773,7 +808,7 @@ export function __seedTrustedTimeForTests(
   if (memory) {
     memory = {
       ...memory,
-      checkInExpiresAtMs: serverMs + TRUSTED_CHECKIN_TTL_MS,
+      checkInExpiresAtMs: serverMs + checkInTtlMs(),
       rebootPenaltyMs: 0,
       distrustWallClock: false,
       offlineRebootCount: 0,

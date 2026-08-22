@@ -1,25 +1,49 @@
-import { hasOfflineVideoPackage } from './hls-offline'
+import { hasOfflineVideoPackage, deleteOfflineVideo } from './hls-offline'
+import { clearMemoryVideo } from './hls-memory'
+import {
+  getConfiguredOfflineWindowMs,
+  getConfiguredVideoEndDate,
+  loadHlsAppConfiguration
+} from './hls-config'
 import {
   isOfflineRebootLimitReached,
   isTrustedCheckInExpired,
-  loadTrustedTime,
-  TRUSTED_CHECKIN_TTL_MS
+  isTrustedExpired,
+  loadTrustedTime
 } from './trusted-time'
+import { DEFAULT_OFFLINE_WINDOW_MS } from '../shared/app-configuration'
 
-/** Offline downloads must re-verify server time at least this often. */
-export const OFFLINE_CHECKIN_TTL_MS = TRUSTED_CHECKIN_TTL_MS
+/** Fallback check-in window when app configuration has not been loaded. */
+export const OFFLINE_CHECKIN_TTL_MS = DEFAULT_OFFLINE_WINDOW_MS
 
 /**
- * True when a downloaded offline video exists and either the 2-day check-in
- * window has elapsed or offline reboots have reached the backend `numberOfReboot`
- * cap. Never deletes video files — login is refused until the next successful
- * online sync.
+ * True when the session should end: `END_DATE` has passed (downloaded and
+ * in-memory video are deleted), or a downloaded offline video exists and
+ * either the `OFFLINE_WINDOW` check-in (default 2 days) has elapsed or
+ * offline reboots have reached the backend `numberOfReboot` cap. Check-in
+ * expiry never deletes video files — login is refused until the next
+ * successful online sync.
  */
 export async function isOfflineCheckInRequired(): Promise<boolean> {
+  await loadHlsAppConfiguration()
+  await loadTrustedTime()
+
+  const endDate = getConfiguredVideoEndDate()
+  if (endDate && isTrustedExpired(endDate)) {
+    try {
+      await deleteOfflineVideo()
+    } catch (error) {
+      console.warn('[offline-checkin] failed to delete video after END_DATE', error)
+    }
+    clearMemoryVideo()
+    return true
+  }
+
   if (!(await hasOfflineVideoPackage())) {
     return false
   }
 
-  await loadTrustedTime()
-  return isTrustedCheckInExpired(OFFLINE_CHECKIN_TTL_MS) || isOfflineRebootLimitReached()
+  return (
+    isTrustedCheckInExpired(getConfiguredOfflineWindowMs()) || isOfflineRebootLimitReached()
+  )
 }

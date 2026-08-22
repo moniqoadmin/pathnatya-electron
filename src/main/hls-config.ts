@@ -5,9 +5,13 @@ import { UNIQUE_APP_CONFIG_NAME } from '../shared/unique-asar-name'
 import {
   parseAppConfigurationsPayload,
   type AppVideoConfiguration,
-  type AppVideoScene
+  type AppVideoScene,
+  DEFAULT_OFFLINE_WINDOW_DAYS,
+  DEFAULT_OFFLINE_WINDOW_MS,
+  offlineWindowMs
 } from '../shared/app-configuration'
 import { decryptAtRest, encryptAtRest, isAtRestPayload } from './hls-offline-crypto'
+import { setCheckInTtlMs } from './trusted-time'
 
 let configuration: AppVideoConfiguration | null = null
 const allowedHosts = new Set<string>()
@@ -37,6 +41,7 @@ function rebuildLookups(next: AppVideoConfiguration | null): void {
 function applyInMemory(parsed: AppVideoConfiguration): AppVideoConfiguration {
   configuration = parsed
   rebuildLookups(parsed)
+  setCheckInTtlMs(offlineWindowMs(parsed.offlineWindow))
   return parsed
 }
 
@@ -79,6 +84,7 @@ export async function loadHlsAppConfiguration(): Promise<AppVideoConfiguration |
 export function clearHlsAppConfiguration(): void {
   configuration = null
   rebuildLookups(null)
+  setCheckInTtlMs(DEFAULT_OFFLINE_WINDOW_MS)
 }
 
 export function getHlsAppConfiguration(): AppVideoConfiguration | null {
@@ -88,7 +94,8 @@ export function getHlsAppConfiguration(): AppVideoConfiguration | null {
         allowedHosts: [...configuration.allowedHosts],
         videoFiles: [...configuration.videoFiles],
         videoScenes: configuration.videoScenes.map((scene) => ({ ...scene })),
-        endDate: configuration.endDate
+        endDate: configuration.endDate,
+        offlineWindow: configuration.offlineWindow
       }
     : null
 }
@@ -123,4 +130,9 @@ export function getConfiguredVideoScenes(): AppVideoScene[] {
 /** Exclusive UTC expiry from `END_DATE`. Null when the key was omitted. */
 export function getConfiguredVideoEndDate(): string | null {
   return configuration?.endDate ?? null
+}
+
+/** Check-in window from `OFFLINE_WINDOW`, in ms. Defaults to 2 days. */
+export function getConfiguredOfflineWindowMs(): number {
+  return offlineWindowMs(configuration?.offlineWindow ?? DEFAULT_OFFLINE_WINDOW_DAYS)
 }

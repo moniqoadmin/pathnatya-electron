@@ -17,7 +17,7 @@ describe('offline-checkin-watch', () => {
     vi.useRealTimers()
   })
 
-  it('polls every 5 minutes and does not log out while the 2-day window is still open', async () => {
+  it('polls every 5 minutes and does not log out while END_DATE and the check-in window are still open', async () => {
     vi.useFakeTimers()
     const isRequired = vi.fn().mockResolvedValue(false)
     const onRequired = vi.fn()
@@ -34,7 +34,7 @@ describe('offline-checkin-watch', () => {
     stop()
   })
 
-  it('logs out once when a later poll finds the 2-day window expired', async () => {
+  it('logs out once when a later poll finds END_DATE or the check-in window expired', async () => {
     vi.useFakeTimers()
     const isRequired = vi.fn().mockResolvedValue(false)
     const onRequired = vi.fn()

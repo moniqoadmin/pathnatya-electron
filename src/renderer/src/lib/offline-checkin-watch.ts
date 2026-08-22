@@ -7,8 +7,9 @@ export type OfflineCheckInWatchOptions = {
 }
 
 /**
- * While a session is active, re-check the 2-day offline check-in every 5 minutes.
- * If it has expired, ask the app to end the session. Video files are left on disk.
+ * While a session is active, re-check `END_DATE` and the offline check-in every
+ * 5 minutes. If access has ended or the window has expired, ask the app to end
+ * the session. `END_DATE` deletes the video in main; check-in expiry leaves it.
  */
 export function startOfflineCheckInWatch(options: OfflineCheckInWatchOptions = {}): () => void {
   const isRequired =
