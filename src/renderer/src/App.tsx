@@ -3,6 +3,7 @@ import type { Account } from './api/accounts'
 import { fetchServerVersion, isNewerVersion } from './api/health'
 import { postAppLog, reportAppLog, type AppLogEvent } from './api/logs'
 import { startConnectivityWatch } from './lib/connectivity'
+import { startOfflineCheckInWatch } from './lib/offline-checkin-watch'
 import { startTrustedTimeDailyWatch } from './lib/trusted-time-watch'
 import { clearHlsMemoryVideo, clearHlsPlayback, wipeDownloadedVideo } from './lib/hls-loader'
 import { isOffline } from './lib/network'
@@ -317,6 +318,21 @@ export default function App() {
     setPhoneNumber('')
     setPage('landing')
   }, [])
+
+  // Every 5 minutes: if the 2-day check-in window has passed, end the session
+  // so the user must log in again. Downloaded video is left on disk.
+  useEffect(() => {
+    if (!account) {
+      return
+    }
+
+    return startOfflineCheckInWatch({
+      onRequired: () => {
+        clearAllStorage()
+        handleLogout()
+      }
+    })
+  }, [account, handleLogout])
 
   useEffect(() => {
     const subscribe = window.pathnatya.onLogoutShortcut

@@ -304,7 +304,8 @@ body {
   bottom: 0;
   z-index: 2;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
   padding: 16px 0 24px;
   background: linear-gradient(to top, #0b1020 65%, rgba(11, 16, 32, 0));
 }
@@ -314,6 +315,16 @@ body {
   min-width: 200px;
   margin-top: 0;
   box-shadow: 0 8px 24px rgba(79, 70, 229, 0.4);
+}
+
+.landing-page .landing-continue .btn-primary:disabled {
+  box-shadow: none;
+}
+
+.landing-continue-hint {
+  margin: 8px 0 0;
+  color: #9aa7c0;
+  font-size: 0.85rem;
 }
 
 .permissions-page {
