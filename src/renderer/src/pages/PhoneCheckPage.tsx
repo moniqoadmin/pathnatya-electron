@@ -5,7 +5,11 @@ import { getDeviceId } from '../lib/device-id'
 import { isNetworkError } from '../lib/network'
 import { userError } from '../lib/user-error'
 import { VIDEO_FILES_TAMPERED_LOGIN_MESSAGE } from '../lib/hls-loader'
-import { isValidPhoneNumber, sanitizePhoneInput } from '../../../shared/phone-number'
+import {
+  isValidPhoneNumber,
+  PHONE_NUMBER_MAX_LENGTH,
+  sanitizePhoneInput
+} from '../../../shared/phone-number'
 
 interface PhoneCheckPageProps {
   onBack: () => void
@@ -117,7 +121,8 @@ export default function PhoneCheckPage({
           type="tel"
           inputMode="numeric"
           autoComplete="tel"
-          placeholder="9876543210"
+          maxLength={PHONE_NUMBER_MAX_LENGTH}
+          placeholder="9 or 10 digits"
           value={phoneNumber}
           onChange={(event) => setPhoneNumber(sanitizePhoneInput(event.target.value))}
           disabled={loading}

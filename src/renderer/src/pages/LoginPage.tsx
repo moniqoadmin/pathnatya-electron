@@ -9,7 +9,11 @@ import { applyAppConfiguration } from '../lib/app-configuration'
 import { applyVideoKey } from '../lib/video-key'
 import { clearHlsOfflineVideo, VIDEO_FILES_TAMPERED_LOGIN_MESSAGE } from '../lib/hls-loader'
 import { userError } from '../lib/user-error'
-import { isValidPhoneNumber, sanitizePhoneInput } from '../../../shared/phone-number'
+import {
+  isValidPhoneNumber,
+  PHONE_NUMBER_MAX_LENGTH,
+  sanitizePhoneInput
+} from '../../../shared/phone-number'
 import type { Account } from '../api/accounts'
 import PasswordInput from '../components/PasswordInput'
 
@@ -214,6 +218,8 @@ export default function LoginPage({
           type="tel"
           inputMode="numeric"
           autoComplete="tel"
+          maxLength={PHONE_NUMBER_MAX_LENGTH}
+          placeholder="9 or 10 digits"
           value={phoneNumber}
           onChange={(event) => setPhoneNumber(sanitizePhoneInput(event.target.value))}
           disabled={loading}

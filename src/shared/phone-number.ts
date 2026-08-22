@@ -1,8 +1,16 @@
+export const PHONE_NUMBER_MIN_LENGTH = 9
 export const PHONE_NUMBER_MAX_LENGTH = 10
-export const PHONE_NUMBER_PATTERN = /^\d{9,10}$/
+export const PHONE_NUMBER_PATTERN = new RegExp(
+  `^\\d{${PHONE_NUMBER_MIN_LENGTH},${PHONE_NUMBER_MAX_LENGTH}}$`
+)
 
 export function isValidPhoneNumber(value: string): boolean {
-  return PHONE_NUMBER_PATTERN.test(value.trim())
+  const digits = value.trim()
+  return (
+    digits.length >= PHONE_NUMBER_MIN_LENGTH &&
+    digits.length <= PHONE_NUMBER_MAX_LENGTH &&
+    PHONE_NUMBER_PATTERN.test(digits)
+  )
 }
 
 export function sanitizePhoneInput(value: string): string {
