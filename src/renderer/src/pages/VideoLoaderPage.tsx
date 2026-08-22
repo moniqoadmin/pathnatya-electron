@@ -344,7 +344,6 @@ export default function VideoLoaderPage({
           }
         } else if (captureWasActiveRef.current === true) {
           captureWasActiveRef.current = false
-          reportAppLog('SCREEN_CAPTURE_CLEARED', false)
         } else if (captureWasActiveRef.current === null) {
           captureWasActiveRef.current = false
         }

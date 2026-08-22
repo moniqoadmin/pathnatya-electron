@@ -208,7 +208,6 @@ export default function App() {
         }
       } else if (alwaysOnTopReportedRef.current) {
         alwaysOnTopReportedRef.current = false
-        reportAppLog('ALWAYS_ON_TOP_CLEARED', false)
       }
     }
 
