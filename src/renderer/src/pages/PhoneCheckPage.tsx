@@ -5,6 +5,7 @@ import { getDeviceId } from '../lib/device-id'
 import { isNetworkError } from '../lib/network'
 import { userError } from '../lib/user-error'
 import { VIDEO_FILES_TAMPERED_LOGIN_MESSAGE } from '../lib/hls-loader'
+import { isValidPhoneNumber, sanitizePhoneInput } from '../../../shared/phone-number'
 
 interface PhoneCheckPageProps {
   onBack: () => void
@@ -28,8 +29,8 @@ export default function PhoneCheckPage({
     setError('')
 
     const trimmed = phoneNumber.trim()
-    if (!/^\d{10}$/.test(trimmed)) {
-      setError(userError(318, 'Please enter a valid 10-digit phone number.'))
+    if (!isValidPhoneNumber(trimmed)) {
+      setError(userError(318, 'Please enter a valid 9 or 10-digit phone number.'))
       return
     }
 
@@ -118,7 +119,7 @@ export default function PhoneCheckPage({
           autoComplete="tel"
           placeholder="9876543210"
           value={phoneNumber}
-          onChange={(event) => setPhoneNumber(event.target.value.replace(/\D/g, '').slice(0, 10))}
+          onChange={(event) => setPhoneNumber(sanitizePhoneInput(event.target.value))}
           disabled={loading}
           autoFocus
         />

@@ -32,6 +32,7 @@ const {
   clearHlsAppConfiguration,
   getConfiguredVideoFileNames,
   getConfiguredVideoScenes,
+  getConfiguredVideoEndDate,
   getRequiredHlsSource,
   isAllowedHlsHost,
   loadHlsAppConfiguration,
@@ -45,7 +46,8 @@ const SAMPLE = [
     videoConfig: {
       DEFAULT_HLS_SOURCE: 'https://cdn.example.com/video-002/playlist.m3u8',
       ALLOWED_HOSTS: ['cdn.example.com'],
-      VIDEO_SCENES: [{ scene: 1, label: 'Scene 1', time: '1.58' }]
+      VIDEO_SCENES: [{ scene: 1, label: 'Scene 1', time: '1.58' }],
+      END_DATE: '06.01.2026'
     },
     videoFiles: ['copy.mp4', { name: 'stolen.bin' }]
   }
@@ -74,6 +76,7 @@ describe('hls-config', () => {
     expect(getConfiguredVideoScenes()).toEqual([
       { scene: 1, label: 'Scene 1', time: '1.58' }
     ])
+    expect(getConfiguredVideoEndDate()).toBe('2026-01-07T00:00:00.000Z')
   })
 
   it('clears hosts and scan names from memory only', () => {
@@ -88,6 +91,7 @@ describe('hls-config', () => {
     expect(isAllowedHlsHost('cdn.example.com')).toBe(false)
     expect(getConfiguredVideoFileNames().size).toBe(0)
     expect(getConfiguredVideoScenes()).toEqual([])
+    expect(getConfiguredVideoEndDate()).toBeNull()
   })
 
   it('writes an encrypted UUID file on login save and reads it back', async () => {
@@ -106,12 +110,14 @@ describe('hls-config', () => {
       hlsSource: 'https://cdn.example.com/video-002/playlist.m3u8',
       allowedHosts: ['cdn.example.com'],
       videoFiles: ['copy.mp4', 'stolen.bin'],
-      videoScenes: [{ scene: 1, label: 'Scene 1', time: '1.58' }]
+      videoScenes: [{ scene: 1, label: 'Scene 1', time: '1.58' }],
+      endDate: '2026-01-07T00:00:00.000Z'
     })
     expect(getRequiredHlsSource()).toBe('https://cdn.example.com/video-002/playlist.m3u8')
     expect(getConfiguredVideoFileNames().has('stolen.bin')).toBe(true)
     expect(getConfiguredVideoScenes()).toEqual([
       { scene: 1, label: 'Scene 1', time: '1.58' }
     ])
+    expect(getConfiguredVideoEndDate()).toBe('2026-01-07T00:00:00.000Z')
   })
 })

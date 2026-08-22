@@ -9,6 +9,7 @@ import { applyAppConfiguration } from '../lib/app-configuration'
 import { applyVideoKey } from '../lib/video-key'
 import { clearHlsOfflineVideo, VIDEO_FILES_TAMPERED_LOGIN_MESSAGE } from '../lib/hls-loader'
 import { userError } from '../lib/user-error'
+import { isValidPhoneNumber, sanitizePhoneInput } from '../../../shared/phone-number'
 import type { Account } from '../api/accounts'
 import PasswordInput from '../components/PasswordInput'
 
@@ -74,8 +75,8 @@ export default function LoginPage({
     setError('')
 
     const trimmed = phoneNumber.trim()
-    if (!/^\d{10}$/.test(trimmed)) {
-      setError(userError(674, 'Please enter a valid 10-digit phone number.'))
+    if (!isValidPhoneNumber(trimmed)) {
+      setError(userError(674, 'Please enter a valid 9 or 10-digit phone number.'))
       return
     }
 
@@ -214,7 +215,7 @@ export default function LoginPage({
           inputMode="numeric"
           autoComplete="tel"
           value={phoneNumber}
-          onChange={(event) => setPhoneNumber(event.target.value.replace(/\D/g, '').slice(0, 10))}
+          onChange={(event) => setPhoneNumber(sanitizePhoneInput(event.target.value))}
           disabled={loading}
           autoFocus={!initialPhone}
         />

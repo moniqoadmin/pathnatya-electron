@@ -14,6 +14,24 @@ export interface AppVideoConfiguration {
   videoFiles: string[]
   /** Seek-bar scene markers from `VIDEO_SCENES`. Empty when the key is missing. */
   videoScenes: AppVideoScene[]
+  /**
+   * Exclusive expiry instant from `END_DATE` (`DD.MM.YYYY`, e.g. `06.01.2026`).
+   * Video is valid through that calendar day (UTC) and deleted at 00:00 the next day.
+   * Null when the key is omitted — callers then use 15 days from trusted now.
+   */
+  endDate: string | null
+}
+
+/** When `END_DATE` is omitted, video and offline login last 15 days from trusted now. */
+export const FALLBACK_VIDEO_TTL_MS = 21 * 24 * 60 * 60 * 1000
+
+/** `END_DATE` when present; otherwise `serverNowMs + 15 days`. */
+export function resolveVideoExpiresAt(endDate: string | null, serverNowMs: number): string {
+  if (endDate) {
+    return new Date(endDate).toISOString()
+  }
+
+  return new Date(serverNowMs + FALLBACK_VIDEO_TTL_MS).toISOString()
 }
 
 function uniqueLower(values: string[]): string[] {
@@ -84,6 +102,78 @@ function firstNonEmptyScenes(...lists: AppVideoScene[][]): AppVideoScene[] {
   }
 
   return []
+}
+
+function firstEndDate(...dates: Array<string | null>): string | null {
+  for (const date of dates) {
+    if (date) {
+      return date
+    }
+  }
+
+  return null
+}
+
+const DOTTED_END_DATE = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/u
+const ISO_DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/u
+
+function exclusiveUtcExpiry(year: number, month: number, day: number): string {
+  const start = Date.UTC(year, month - 1, day)
+  const asUtc = new Date(start)
+  if (
+    asUtc.getUTCFullYear() !== year ||
+    asUtc.getUTCMonth() !== month - 1 ||
+    asUtc.getUTCDate() !== day
+  ) {
+    throw new Error('7534 : Video end date in app configuration is invalid.')
+  }
+
+  return new Date(Date.UTC(year, month - 1, day + 1)).toISOString()
+}
+
+/**
+ * `END_DATE` from GET /app-configurations. `06.01.2026` is 6 January 2026;
+ * access lasts through that UTC day.
+ */
+export function parseEndDate(value: unknown): string | null {
+  if (value == null || value === '') {
+    return null
+  }
+
+  if (typeof value !== 'string' && typeof value !== 'number') {
+    throw new Error('7534 : Video end date in app configuration is invalid.')
+  }
+
+  const trimmed = String(value).trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const dotted = DOTTED_END_DATE.exec(trimmed)
+  if (dotted) {
+    return exclusiveUtcExpiry(Number(dotted[3]), Number(dotted[2]), Number(dotted[1]))
+  }
+
+  const isoDate = ISO_DATE_ONLY.exec(trimmed)
+  if (isoDate) {
+    return exclusiveUtcExpiry(Number(isoDate[1]), Number(isoDate[2]), Number(isoDate[3]))
+  }
+
+  const parsed = Date.parse(trimmed)
+  if (!Number.isNaN(parsed)) {
+    return new Date(parsed).toISOString()
+  }
+
+  throw new Error('7534 : Video end date in app configuration is invalid.')
+}
+
+function endDateFromConfig(
+  record: Record<string, unknown>,
+  videoConfig: Record<string, unknown>
+): string | null {
+  return parseEndDate(
+    videoConfig.END_DATE ?? videoConfig.endDate ?? record.END_DATE ?? record.endDate
+  )
 }
 
 /**
@@ -282,13 +372,14 @@ function parseAppConfigurationItem(item: unknown): AppVideoConfiguration | null 
       videoConfig.ALLOWED_HOSTS ?? videoConfig.allowedHosts
     ),
     videoFiles: parseVideoFileNames(record.videoFiles ?? videoConfig.videoFiles),
-    videoScenes: scenesFromConfig(record, videoConfig)
+    videoScenes: scenesFromConfig(record, videoConfig),
+    endDate: endDateFromConfig(record, videoConfig)
   }
 }
 
 /**
  * Accepts the GET /app-configurations array, a single API row, or the stored
- * `{ hlsSource, allowedHosts, videoFiles, videoScenes }` shape used over IPC / offline session.
+ * `{ hlsSource, allowedHosts, videoFiles, videoScenes, endDate }` shape used over IPC / offline session.
  */
 export function parseAppConfigurationsPayload(payload: unknown): AppVideoConfiguration {
   const data = unwrapAppConfigurationsPayload(payload)
@@ -315,7 +406,8 @@ export function parseAppConfigurationsPayload(payload: unknown): AppVideoConfigu
         ...rest.flatMap((item) => item.allowedHosts)
       ]),
       videoFiles,
-      videoScenes: firstNonEmptyScenes(first.videoScenes, ...rest.map((item) => item.videoScenes))
+      videoScenes: firstNonEmptyScenes(first.videoScenes, ...rest.map((item) => item.videoScenes)),
+      endDate: firstEndDate(first.endDate, ...rest.map((item) => item.endDate))
     }
   }
 
@@ -326,7 +418,8 @@ export function parseAppConfigurationsPayload(payload: unknown): AppVideoConfigu
       hlsSource,
       allowedHosts: hostsFromConfig(hlsSource, stored.allowedHosts),
       videoFiles: parseVideoFileNames(stored.videoFiles),
-      videoScenes: parseVideoScenes(stored.videoScenes ?? stored.VIDEO_SCENES)
+      videoScenes: parseVideoScenes(stored.videoScenes ?? stored.VIDEO_SCENES),
+      endDate: parseEndDate(stored.endDate ?? stored.END_DATE)
     }
   }
 

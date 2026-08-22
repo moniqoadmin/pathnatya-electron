@@ -5,6 +5,7 @@ import { app, net } from 'electron'
 import { UNIQUE_MANIFEST_NAME } from '../shared/unique-asar-name'
 import { decryptAtRest, encryptAtRest } from './hls-offline-crypto'
 import { readSealedManifestBlob, writeSealedManifestBlob } from './hls-offline-db'
+import { getHlsAppConfiguration } from './hls-config'
 import { isTrustedExpired, loadTrustedTime } from './trusted-time'
 
 /** Prefer keeping a downloaded package when the machine cannot re-fetch it. */
@@ -29,8 +30,28 @@ async function deleteOfflineVideoIfOnline(reason: string): Promise<void> {
   await deleteOfflineVideo()
 }
 
-/** Offline video package is valid for 10 days from download (server time). */
-export const OFFLINE_VIDEO_TTL_MS = 10 * 24 * 60 * 60 * 1000
+/**
+ * Offline package expiry: earlier of the stamped download expiry and `END_DATE`
+ * from app configuration, so the server can shorten access without a re-download.
+ */
+function effectiveExpiresAt(stamped: string): string {
+  const configured = getHlsAppConfiguration()?.endDate
+  if (!configured) {
+    return stamped
+  }
+
+  const stampedMs = Date.parse(stamped)
+  const configuredMs = Date.parse(configured)
+  if (Number.isNaN(configuredMs)) {
+    return stamped
+  }
+
+  if (Number.isNaN(stampedMs) || configuredMs < stampedMs) {
+    return configured
+  }
+
+  return stamped
+}
 
 const PACKAGE_DIR_NAME = 'hls-offline'
 /** Stored outside the package folder so segment blobs and hashes are not co-located. */
@@ -147,7 +168,7 @@ function hashesMatch(expectedHex: string, actualHex: string): boolean {
 }
 
 function isExpired(expiresAt: string): boolean {
-  return isTrustedExpired(expiresAt)
+  return isTrustedExpired(effectiveExpiresAt(expiresAt))
 }
 
 async function pathExists(filePath: string): Promise<boolean> {
@@ -229,7 +250,10 @@ export async function readOfflineManifest(): Promise<OfflineVideoManifest | null
       return null
     }
 
-    return parsed
+    return {
+      ...parsed,
+      expiresAt: effectiveExpiresAt(parsed.expiresAt)
+    }
   } catch {
     return null
   }

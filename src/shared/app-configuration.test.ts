@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { parseAppConfigurationsPayload, parseVideoFileNames, parseVideoScenes } from './app-configuration'
+import {
+  FALLBACK_VIDEO_TTL_MS,
+  parseAppConfigurationsPayload,
+  parseEndDate,
+  parseVideoFileNames,
+  parseVideoScenes,
+  resolveVideoExpiresAt
+} from './app-configuration'
 
 const SAMPLE = [
   {
@@ -22,6 +29,7 @@ describe('parseAppConfigurationsPayload', () => {
     expect(config.allowedHosts).toContain('pathnatya-video-cdn.b-cdn.net')
     expect(config.videoFiles).toEqual([])
     expect(config.videoScenes).toEqual([])
+    expect(config.endDate).toBeNull()
   })
 
   it('adds the source hostname when ALLOWED_HOSTS is omitted', () => {
@@ -68,6 +76,7 @@ describe('parseAppConfigurationsPayload', () => {
     expect(config.allowedHosts).toEqual(['other.example'])
     expect(config.videoFiles).toEqual(['secret.asar'])
     expect(config.videoScenes).toEqual([])
+    expect(config.endDate).toBeNull()
   })
 
   it('rejects http sources and empty payloads', () => {
@@ -124,14 +133,36 @@ describe('parseAppConfigurationsPayload', () => {
     })
 
     expect(config.hlsSource).toBe(
-      'https://dsa.cloudfront.net/dsa/dsa.m3u8'
+      'https://dasdasdas/playlist.m3u8'
     )
-    expect(config.allowedHosts).toContain('dassda.cloudfront.net')
+    expect(config.allowedHosts).toContain('dasdasd.dsa.net')
     expect(config.videoFiles).toEqual(['segment_win.bi'])
     expect(config.videoScenes).toEqual([
       { scene: 1, label: 'Scene 1', time: '1.58' },
       { scene: 2, label: 'Scene 2', time: '5.00' }
     ])
+  })
+
+  it('reads END_DATE as DD.MM.YYYY and stamps exclusive UTC expiry', () => {
+    const config = parseAppConfigurationsPayload({
+      videoConfig: {
+        DEFAULT_HLS_SOURCE: 'https://cdn.example.com/show/playlist.m3u8',
+        END_DATE: '06.01.2026'
+      }
+    })
+
+    expect(config.endDate).toBe('2026-01-07T00:00:00.000Z')
+  })
+
+  it('round-trips a stored ISO endDate without shifting a day', () => {
+    const config = parseAppConfigurationsPayload({
+      hlsSource: 'https://cdn.example.com/show/playlist.m3u8',
+      allowedHosts: ['cdn.example.com'],
+      videoFiles: [],
+      endDate: '2026-01-07T00:00:00.000Z'
+    })
+
+    expect(config.endDate).toBe('2026-01-07T00:00:00.000Z')
   })
 })
 
@@ -172,5 +203,37 @@ describe('parseVideoScenes', () => {
     expect(parseVideoScenes('')).toEqual([])
     expect(parseVideoScenes('not-json')).toEqual([])
     expect(parseVideoScenes({ time: '1.58' })).toEqual([])
+  })
+})
+
+describe('parseEndDate', () => {
+  it('treats DD.MM.YYYY as an inclusive UTC calendar day', () => {
+    expect(parseEndDate('06.01.2026')).toBe('2026-01-07T00:00:00.000Z')
+    expect(parseEndDate('6.9.2026')).toBe('2026-09-07T00:00:00.000Z')
+  })
+
+  it('rejects impossible calendar dates and unknown formats', () => {
+    expect(() => parseEndDate('31.02.2026')).toThrow(/7534/u)
+    expect(() => parseEndDate('not-a-date')).toThrow(/7534/u)
+  })
+
+  it('returns null when END_DATE is omitted', () => {
+    expect(parseEndDate(undefined)).toBeNull()
+    expect(parseEndDate(null)).toBeNull()
+    expect(parseEndDate('')).toBeNull()
+  })
+})
+
+describe('resolveVideoExpiresAt', () => {
+  it('uses END_DATE when present', () => {
+    expect(resolveVideoExpiresAt('2026-01-07T00:00:00.000Z', Date.parse('2026-01-01T00:00:00.000Z'))).toBe(
+      '2026-01-07T00:00:00.000Z'
+    )
+  })
+
+  it('falls back to 15 days from trusted now when END_DATE is omitted', () => {
+    const now = Date.parse('2026-01-01T00:00:00.000Z')
+    expect(resolveVideoExpiresAt(null, now)).toBe(new Date(now + FALLBACK_VIDEO_TTL_MS).toISOString())
+    expect(FALLBACK_VIDEO_TTL_MS).toBe(15 * 24 * 60 * 60 * 1000)
   })
 })

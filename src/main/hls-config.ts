@@ -87,7 +87,8 @@ export function getHlsAppConfiguration(): AppVideoConfiguration | null {
         hlsSource: configuration.hlsSource,
         allowedHosts: [...configuration.allowedHosts],
         videoFiles: [...configuration.videoFiles],
-        videoScenes: configuration.videoScenes.map((scene) => ({ ...scene }))
+        videoScenes: configuration.videoScenes.map((scene) => ({ ...scene })),
+        endDate: configuration.endDate
       }
     : null
 }
@@ -117,4 +118,9 @@ export function getConfiguredVideoFileNames(): Set<string> {
 /** Scene markers from encrypted app configuration. Empty when VIDEO_SCENES is absent. */
 export function getConfiguredVideoScenes(): AppVideoScene[] {
   return configuration?.videoScenes.map((scene) => ({ ...scene })) ?? []
+}
+
+/** Exclusive UTC expiry from `END_DATE`. Null when the key was omitted. */
+export function getConfiguredVideoEndDate(): string | null {
+  return configuration?.endDate ?? null
 }

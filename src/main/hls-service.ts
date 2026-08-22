@@ -21,7 +21,6 @@ import {
 import { deleteAtRestKeyFile } from './hls-offline-crypto'
 import { clearOfflineSession } from './offline-session'
 import {
-  OFFLINE_VIDEO_TTL_MS,
   assertOfflinePackageIntegrity,
   assertOfflineSegmentIntegrity,
   beginDownload,
@@ -43,8 +42,14 @@ import {
   type OfflineVideoManifest,
   type OfflineVideoStatus
 } from './hls-offline'
-import { getRequiredHlsSource, isAllowedHlsHost, loadHlsAppConfiguration } from './hls-config'
-import { getTrustedNowMs, loadTrustedTime } from './trusted-time'
+import { resolveVideoExpiresAt } from '../shared/app-configuration'
+import {
+  getConfiguredVideoEndDate,
+  getRequiredHlsSource,
+  isAllowedHlsHost,
+  loadHlsAppConfiguration
+} from './hls-config'
+import { getTrustedNowMs, isTrustedExpired, loadTrustedTime } from './trusted-time'
 
 export const HLS_PLAYLIST_URL = 'pathnatya://hls/playlist.m3u8'
 const SEGMENT_URL_PREFIX = 'pathnatya://hls/segment/'
@@ -418,6 +423,12 @@ export async function prepareHlsVideo(sourceUrl?: string): Promise<PreparedHls> 
 
   // Fail fast with a clear message if the session key was never installed.
   getHlsKey()
+  await loadHlsAppConfiguration()
+  const configuredEndDate = getConfiguredVideoEndDate()
+  if (configuredEndDate && isTrustedExpired(configuredEndDate)) {
+    await deleteOfflineVideo()
+    throw new Error('4082 : Video access has ended.')
+  }
 
   const offline = await getValidOfflineManifest()
   if (offline) {
@@ -448,7 +459,7 @@ export async function prepareHlsVideo(sourceUrl?: string): Promise<PreparedHls> 
         segments: segmentsFromMemoryPackage(memory),
         rewritten: memory.rewrittenPlaylist
       },
-      { fromOffline: false, fromMemory: true, expiresAt: null }
+      { fromOffline: false, fromMemory: true, expiresAt: configuredEndDate }
     )
   }
 
@@ -458,7 +469,7 @@ export async function prepareHlsVideo(sourceUrl?: string): Promise<PreparedHls> 
     const remote = await resolveRemotePlaylist(await resolveHlsSourceUrl(sourceUrl))
     return applyResolvedPlaylist(
       { segments: remote.segments, rewritten: remote.rewritten },
-      { fromOffline: false, expiresAt: null }
+      { fromOffline: false, expiresAt: configuredEndDate }
     )
   } catch (error) {
     const message = error instanceof Error ? error.message : '4276 : Unable to prepare video.'
@@ -540,6 +551,16 @@ export async function downloadHlsVideoForOffline(
   }
 
   getHlsKey()
+  await loadHlsAppConfiguration()
+  await loadTrustedTime()
+  const serverNowMs = getTrustedNowMs()
+  if (serverNowMs == null) {
+    throw new Error('6194 : Unable to stamp offline video expiry without trusted time.')
+  }
+  const expiresAtIso = resolveVideoExpiresAt(getConfiguredVideoEndDate(), serverNowMs)
+  if (isTrustedExpired(expiresAtIso)) {
+    throw new Error('4082 : Video access has ended.')
+  }
 
   const remote = await resolveRemotePlaylist(await resolveHlsSourceUrl(sourceUrl))
   beginDownload(remote.segments.length)
@@ -573,16 +594,9 @@ export async function downloadHlsVideoForOffline(
       throw new Error('625 : Download cancelled.')
     }
 
-    // Stamp expiry from the last trusted clock. A fresh /health/time is not
-    // needed — startup, offline-session save, and the 24h Cloudflare tick
-    // already hold server GMT; wall-clock changes cannot extend the package.
-    await loadTrustedTime()
-    const serverNowMs = getTrustedNowMs()
-    if (serverNowMs == null) {
-      throw new Error('6194 : Unable to stamp offline video expiry without trusted time.')
-    }
+    // Stamp expiry from END_DATE, or 15 days from trusted now when it is omitted.
     const downloadedAt = new Date(serverNowMs)
-    const expiresAt = new Date(serverNowMs + OFFLINE_VIDEO_TTL_MS)
+    const expiresAt = new Date(expiresAtIso)
 
     const manifest: OfflineVideoManifest = {
       version: 1,

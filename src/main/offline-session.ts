@@ -2,19 +2,22 @@ import { promises as fs } from 'fs'
 import { join } from 'path'
 import { app, safeStorage } from 'electron'
 import { pbkdf2Sync, randomBytes, timingSafeEqual } from 'crypto'
-import { loadHlsAppConfiguration } from './hls-config'
+import { getHlsAppConfiguration, loadHlsAppConfiguration } from './hls-config'
 import { isVideoTampered } from './video-tamper-lock'
 import { isOfflineCheckInRequired } from './offline-checkin'
 import {
   getTrustedNowDate,
+  isTrustedExpired,
   isTrustedTtlExpired,
   loadTrustedTime,
   setNumberOfRebootFromAccount
 } from './trusted-time'
+import { FALLBACK_VIDEO_TTL_MS } from '../shared/app-configuration'
+import { isValidPhoneNumber } from '../shared/phone-number'
 
 const OFFLINE_SESSION_FILE = 'offline-session.dat'
-/** Matches offline video availability so users can log in and watch for 10 days. */
-export const OFFLINE_SESSION_TTL_MS = 10 * 24 * 60 * 60 * 1000
+/** Fallback when END_DATE is omitted: 15 days from the last online login. */
+export const OFFLINE_SESSION_TTL_MS = FALLBACK_VIDEO_TTL_MS
 const PBKDF2_ITERATIONS = 120_000
 const PBKDF2_KEY_LENGTH = 32
 const PBKDF2_DIGEST = 'sha256'
@@ -91,12 +94,18 @@ function unseal(payload: Buffer): string {
 }
 
 function isExpired(savedAt: string): boolean {
+  const endDate = getHlsAppConfiguration()?.endDate
+  if (endDate) {
+    return isTrustedExpired(endDate)
+  }
+
   return isTrustedTtlExpired(savedAt, OFFLINE_SESSION_TTL_MS)
 }
 
 async function readStoredSession(): Promise<StoredOfflineSession | null> {
   try {
     await loadTrustedTime()
+    await loadHlsAppConfiguration()
     const encrypted = await fs.readFile(getSessionPath())
     const parsed = JSON.parse(unseal(encrypted)) as StoredOfflineSession
 
@@ -125,7 +134,7 @@ async function readStoredSession(): Promise<StoredOfflineSession | null> {
 
 export async function saveOfflineSession(payload: OfflineSessionPayload): Promise<void> {
   const phoneNumber = payload.phoneNumber.trim()
-  if (!/^\d{10}$/.test(phoneNumber)) {
+  if (!isValidPhoneNumber(phoneNumber)) {
     throw new Error('578 : Invalid phone number for offline session.')
   }
 

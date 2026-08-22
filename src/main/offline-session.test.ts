@@ -16,7 +16,8 @@ vi.mock('./video-tamper-lock', () => ({
 }))
 
 vi.mock('./hls-config', () => ({
-  loadHlsAppConfiguration: vi.fn()
+  loadHlsAppConfiguration: vi.fn(),
+  getHlsAppConfiguration: vi.fn(() => null)
 }))
 
 vi.mock('./offline-checkin', () => ({
@@ -26,6 +27,7 @@ vi.mock('./offline-checkin', () => ({
 vi.mock('./trusted-time', () => ({
   getTrustedNowDate: () => new Date('2026-01-01T00:00:00.000Z'),
   isTrustedTtlExpired: () => false,
+  isTrustedExpired: () => false,
   loadTrustedTime: vi.fn(),
   setNumberOfRebootFromAccount: vi.fn()
 }))
