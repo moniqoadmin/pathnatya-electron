@@ -70,6 +70,7 @@ import {
   type PermissionId
 } from './permissions-guard'
 import { API_BASE } from '../shared/api-config'
+import { nextHeadersReceived } from './api-cors'
 import {
   installPackedDevToolsLockdown,
   isDevToolsShortcut,
@@ -134,20 +135,15 @@ function rendererContentSecurityPolicy(): string {
   ].join('; ')
 }
 
-function applyRendererContentSecurityPolicy(): void {
-  const policy = rendererContentSecurityPolicy()
+function applyRendererWebRequestHeaders(): void {
+  const csp = isDev ? null : rendererContentSecurityPolicy()
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    if (details.resourceType !== 'mainFrame' && details.resourceType !== 'subFrame') {
-      callback({})
-      return
-    }
-
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [policy]
-      }
-    })
+    callback(
+      nextHeadersReceived(details, {
+        apiBase: API_BASE,
+        csp
+      })
+    )
   })
 }
 
@@ -499,6 +495,9 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+    if (isDev) {
+      mainWindow.webContents.openDevTools({ mode: 'detach' })
+    }
   })
 
   // OS-level focus loss (Alt-Tab / Cmd-Tab / click another app) and minimise/hide.
@@ -828,9 +827,8 @@ app.whenReady().then(async () => {
 
   // Header CSP blocks Vite's inline React-refresh preamble in dev (meta CSP does not,
   // because Vite prepends that script before the meta tag). Pin origins only when packaged.
-  if (!isDev) {
-    applyRendererContentSecurityPolicy()
-  }
+  // CORS rewrite is always on: the API's OPTIONS preflight is 404 without ACAO.
+  applyRendererWebRequestHeaders()
 
   const allowed = await enforceDesktopLaptopOnly()
   if (!allowed) {
