@@ -26,7 +26,7 @@ export default function LandingPage({ onContinue }: LandingPageProps) {
           <li>
             After a successful online login, you can keep watching on this device for 7 days.
           </li>
-          <li>Video access will be removed after 15 August 2026.</li>
+          <li>Video access will be removed after 6 September 2026.</li>
         </ul>
       </section>
 
