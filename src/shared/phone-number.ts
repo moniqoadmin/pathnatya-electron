@@ -1,4 +1,4 @@
-export const PHONE_NUMBER_MIN_LENGTH = 9
+export const PHONE_NUMBER_MIN_LENGTH = 8
 export const PHONE_NUMBER_MAX_LENGTH = 10
 export const PHONE_NUMBER_PATTERN = new RegExp(
   `^\\d{${PHONE_NUMBER_MIN_LENGTH},${PHONE_NUMBER_MAX_LENGTH}}$`

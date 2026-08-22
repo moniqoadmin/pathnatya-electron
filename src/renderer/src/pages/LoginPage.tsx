@@ -80,7 +80,7 @@ export default function LoginPage({
 
     const trimmed = phoneNumber.trim()
     if (!isValidPhoneNumber(trimmed)) {
-      setError(userError(674, 'Please enter a valid 9 or 10-digit phone number.'))
+      setError(userError(674, 'Please enter a valid 8, 9 or 10-digit phone number.'))
       return
     }
 
@@ -219,7 +219,7 @@ export default function LoginPage({
           inputMode="numeric"
           autoComplete="tel"
           maxLength={PHONE_NUMBER_MAX_LENGTH}
-          placeholder="9 or 10 digits"
+          placeholder="8, 9 or 10 digits"
           value={phoneNumber}
           onChange={(event) => setPhoneNumber(sanitizePhoneInput(event.target.value))}
           disabled={loading}

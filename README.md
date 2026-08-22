@@ -121,7 +121,7 @@ build/            Icons and macOS entitlements
 ## Viewer flow
 
 1. Grant required OS permissions (files/app storage, user folders, and Accessibility on macOS).
-2. Continue past the guidelines, then enter a registered 9 or 10-digit phone number.
+2. Continue past the guidelines, then enter a registered 8, 9 or 10-digit phone number.
 3. Set a password on first use (shown once, cannot be reset) or log in with the existing password.
 4. Wait while the video is prepared on this device.
 5. Watch in the protected player. A successful online login keeps access on this device for **7 days**. Video access ends after **6 September 2026**.
